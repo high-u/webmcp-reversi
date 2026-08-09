@@ -416,7 +416,7 @@ export function createBoardScene(container, { onCellClick, onAnimationComplete }
 
   function update(snapshot) {
     syncPieces(snapshot.board);
-    const showHints = snapshot.gameStarted && !snapshot.gameOver && snapshot.players[snapshot.turn] === "human";
+    const showHints = snapshot.gameStarted && !snapshot.gameOver && snapshot.players[snapshot.turn].type === "human";
     syncHints(snapshot.legalMoves, showHints);
     syncLastMove(snapshot.lastMove);
   }

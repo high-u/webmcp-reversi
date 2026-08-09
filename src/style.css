@@ -175,6 +175,18 @@ body {
   text-align: center;
 }
 
+.agent-id-line {
+  position: absolute;
+  top: 64px;
+  left: 0;
+  right: 0;
+  margin: 0;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
 .message-line {
   position: absolute;
   bottom: 64px;

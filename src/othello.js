@@ -91,6 +91,10 @@ function countDiscs(b) {
   return { black, white };
 }
 
+function generateAgentId() {
+  return Math.floor(Math.random() * 0x10000).toString(16).padStart(4, "0").toUpperCase();
+}
+
 // ---------------- state ----------------
 
 let board = createEmptyBoard();
@@ -100,11 +104,16 @@ let winner = null;
 let lastMove = null;
 let lastEventMessage = null;
 let gameStarted = false;
-// 次に「対局開始」した時に適用される、人間の担当色。対局中の状態には影響しない。
-let pendingHumanColor = BLACK;
-// 現在進行中(または直近に開始した)対局に実際に適用されているプレイヤー種別。
-// 常にどちらか一方が human、もう一方が agent(人間対人間・エージェント対エージェントは不可)。
-const activePlayers = { black: "human", white: "agent" };
+// 次に「対局開始」した時に適用される、黒/白それぞれの担当("human"|"agent")。対局中の状態には影響しない。
+const pendingPlayerTypes = { black: "human", white: "agent" };
+// 現在進行中(または直近に開始した)対局に実際に適用されているプレイヤー。
+// 黒/白は独立にhuman/agentを選べる(人間対人間・AI対AIも可)。agentIdはtype==="agent"の時だけ
+// 4桁hexの値を持ち、WebMCP経由の着手時に色とセットで一致を確認する識別子として使う
+// (セキュリティ目的ではなく、AI対AI時にどちらのエージェントの手番かを区別するためのもの)。
+const players = {
+  black: { type: "human", agentId: null },
+  white: { type: "agent", agentId: null },
+};
 
 // 着手/対局開始が受理されてから、3D描画側の演出が完了するまでの保留状態。
 let locked = false;
@@ -149,8 +158,8 @@ export function getSnapshot() {
     lastMove,
     message: lastEventMessage,
     gameStarted,
-    players: { ...activePlayers },
-    pendingHumanColor,
+    players: { black: { ...players.black }, white: { ...players.white } },
+    pendingPlayerTypes: { ...pendingPlayerTypes },
   };
 }
 
@@ -163,10 +172,11 @@ function resetBoardState() {
   lastEventMessage = null;
 }
 
-/** セットアップ画面での色選択。対局中の状態には一切影響しない。 */
-export function setPendingHumanColor(color) {
+/** セットアップ画面での担当選択。対局中の状態には一切影響しない。 */
+export function setPendingPlayerType(color, type) {
   if (color !== BLACK && color !== WHITE) return;
-  pendingHumanColor = color;
+  if (type !== "human" && type !== "agent") return;
+  pendingPlayerTypes[color] = type;
   notify();
 }
 
@@ -178,8 +188,11 @@ export function startNewGame() {
   if (locked) {
     return { ok: false, error: "処理中です。少し待ってから、もう一度お試しください。", locked: true };
   }
-  activePlayers.black = pendingHumanColor === BLACK ? "human" : "agent";
-  activePlayers.white = pendingHumanColor === WHITE ? "human" : "agent";
+  players.black = { type: pendingPlayerTypes.black, agentId: pendingPlayerTypes.black === "agent" ? generateAgentId() : null };
+  players.white = { type: pendingPlayerTypes.white, agentId: pendingPlayerTypes.white === "agent" ? generateAgentId() : null };
+  if (players.black.agentId && players.black.agentId === players.white.agentId) {
+    players.white.agentId = generateAgentId();
+  }
   const freshBoard = createInitialBoard();
   const cells = [];
   for (let r = 0; r < SIZE; r++) {
@@ -277,7 +290,7 @@ export function completeAnimation() {
 }
 
 function currentTurnIsHuman() {
-  return gameStarted && !gameOver && activePlayers[currentTurn] === "human";
+  return gameStarted && !gameOver && players[currentTurn].type === "human";
 }
 
 /** ブラウザUIのクリック専用。人間の番でなければ何もしない。 */
@@ -291,27 +304,29 @@ export function playHumanMove(row, col) {
   return attemptMove(row, col);
 }
 
-function agentColor() {
-  return activePlayers.black === "agent" ? BLACK : WHITE;
-}
-
 /**
  * WebMCPツール経由の呼び出し専用。
- * 常にエージェント側の色として扱い、今がエージェントの番でなければエラーにする。
+ * color(自分が担当している色)とagentId(ユーザーから伝えられた4桁hex)の一致を確認してから着手する。
  */
-export function playAgentMove(row, col, color) {
+export function playAgentMove(row, col, color, agentId) {
   if (locked) {
     return { ok: false, error: "直前の手を処理中です。少し待ってから、もう一度お試しください。", locked: true };
   }
   if (!gameStarted) {
     return { ok: false, error: "対局がまだ開始されていません。ブラウザで「対局開始」を押してから着手してください。" };
   }
-  const expected = agentColor();
-  if (currentTurn !== expected) {
-    return { ok: false, error: `今はWebMCPエージェントの番ではありません(現在の手番: ${currentTurn}、ブラウザUIから人間が着手する番です)。` };
+  if (color !== BLACK && color !== WHITE) {
+    return { ok: false, error: "color は black または white を指定してください。" };
   }
-  if (color && color !== expected) {
-    return { ok: false, error: `WebMCPエージェントが担当している色は ${expected} です。指定された色(${color})と一致しません。` };
+  const slot = players[color];
+  if (slot.type !== "agent") {
+    return { ok: false, error: `${colorLabel(color)}は人間が担当しています。` };
   }
-  return attemptMove(row, col, expected);
+  if (agentId !== slot.agentId) {
+    return { ok: false, error: "agentId が一致しません。" };
+  }
+  if (currentTurn !== color) {
+    return { ok: false, error: `今は${colorLabel(color)}の番ではありません(現在の手番: ${currentTurn})。` };
+  }
+  return attemptMove(row, col, color);
 }

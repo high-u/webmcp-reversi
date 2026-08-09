@@ -25,7 +25,8 @@ function toToolStateJSON(snapshot) {
     status: snapshot.gameOver ? "finished" : "in_progress",
     winner: snapshot.gameOver ? snapshot.winner : null,
     gameStarted: snapshot.gameStarted,
-    players: snapshot.players,
+    // agentIdは意図的に含めない(ユーザーが各エージェントに直接伝える識別子のため、ツール経由では読めないようにする)。
+    players: { black: snapshot.players.black.type, white: snapshot.players.white.type },
     message: snapshot.message,
   };
 }
@@ -57,18 +58,19 @@ async function registerWebMCPTools(api) {
 
   await api.registerTool({
     name: "make_move",
-    description: "row,colで指定したマスに、このWebMCPツールに割り当てられた色(エージェント側の色)の石を置きます。row/colは0〜7の整数(0が盤の上端/左端)。対局が始まっていない場合・エージェントの番でない場合・合法手でない場合はエラーを返します。",
+    description: "row,colで指定したマスに、colorで指定した色の石を置きます。row/colは0〜7の整数(0が盤の上端/左端)。colorはあなたが担当している色、agentIdはユーザーから伝えられた4桁の16進数のIDです。対局が始まっていない場合・その色をAIが担当していない場合・あなたの番でない場合・agentIdが一致しない場合・合法手でない場合はエラーを返します。",
     inputSchema: {
       type: "object",
       properties: {
         row: { type: "integer", minimum: 0, maximum: 7, description: "行番号(0-7、0が最上段)" },
         col: { type: "integer", minimum: 0, maximum: 7, description: "列番号(0-7、0が左端)" },
-        color: { type: "string", enum: ["black", "white"], description: "打つ色(任意)。指定した場合、エージェントに割り当てられた色と一致しないとエラーになります。" },
+        color: { type: "string", enum: ["black", "white"], description: "打つ色。あなたが担当している色を指定してください。" },
+        agentId: { type: "string", pattern: "^[0-9a-fA-F]{4}$", description: "ユーザーから伝えられた4桁の16進数のエージェントID。" },
       },
-      required: ["row", "col"],
+      required: ["row", "col", "color", "agentId"],
     },
-    execute: async ({ row, col, color }) => {
-      const result = engine.playAgentMove(row, col, color);
+    execute: async ({ row, col, color, agentId }) => {
+      const result = engine.playAgentMove(row, col, color, agentId);
       if (!result.ok) {
         const stateJSON = toToolStateJSON(engine.getSnapshot());
         return {

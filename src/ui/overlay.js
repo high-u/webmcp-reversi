@@ -23,7 +23,14 @@ function turnText(snap) {
     return `対局終了 - ${result}`;
   }
   if (!snap.gameStarted || !snap.turn) return "";
-  return `${colorLabel(snap.turn)}の番です (${controllerLabel(snap.players[snap.turn])})`;
+  return `${colorLabel(snap.turn)}の番です (${controllerLabel(snap.players[snap.turn].type)})`;
+}
+
+function agentIdText(snap) {
+  const parts = [];
+  if (snap.players.black.type === "agent") parts.push(`黒: ${snap.players.black.agentId}`);
+  if (snap.players.white.type === "agent") parts.push(`白: ${snap.players.white.agentId}`);
+  return parts.length ? `エージェントID — ${parts.join(" ／ ")}` : "";
 }
 
 export function mountOverlay(root, engine) {
@@ -36,12 +43,12 @@ export function mountOverlay(root, engine) {
     localMessage.val = "";
   });
 
-  function ColorChoice(color, label) {
+  function PlayerTypeChoice(color, type, label) {
     return button(
       {
         type: "button",
-        class: () => "color-choice" + (state.val.pendingHumanColor === color ? " color-choice--selected" : ""),
-        onclick: () => engine.setPendingHumanColor(color),
+        class: () => "color-choice" + (state.val.pendingPlayerTypes[color] === type ? " color-choice--selected" : ""),
+        onclick: () => engine.setPendingPlayerType(color, type),
       },
       label
     );
@@ -49,8 +56,10 @@ export function mountOverlay(root, engine) {
 
   const setupBand = div(
     { class: "setup-band", style: () => (state.val.gameStarted ? "display:none;" : "") },
-    span({ class: "setup-band__hint" }, "あなたの色"),
-    div({ class: "color-choice-group" }, ColorChoice(BLACK, "先手(黒)"), ColorChoice(WHITE, "後手(白)")),
+    span({ class: "setup-band__hint" }, colorLabel(BLACK)),
+    div({ class: "color-choice-group" }, PlayerTypeChoice(BLACK, "human", "人間"), PlayerTypeChoice(BLACK, "agent", "AI")),
+    span({ class: "setup-band__hint" }, colorLabel(WHITE)),
+    div({ class: "color-choice-group" }, PlayerTypeChoice(WHITE, "human", "人間"), PlayerTypeChoice(WHITE, "agent", "AI")),
     button({ class: "start-btn", type: "button", onclick: () => engine.startNewGame() }, "対局開始")
   );
 
@@ -62,6 +71,11 @@ export function mountOverlay(root, engine) {
     button({ class: "end-btn", type: "button", onclick: () => engine.returnToSetup() }, "対局終了")
   );
 
+  const agentIdLine = p(
+    { class: "agent-id-line", style: () => (state.val.gameStarted && agentIdText(state.val) ? "" : "display:none;") },
+    () => agentIdText(state.val)
+  );
+
   const messageLine = p({ class: "message-line" }, () => localMessage.val || state.val.message || "");
 
   const statusBadge = div(
@@ -69,7 +83,7 @@ export function mountOverlay(root, engine) {
     () => status.val.text
   );
 
-  van.add(root, setupBand, hudBand, messageLine, statusBadge);
+  van.add(root, setupBand, hudBand, agentIdLine, messageLine, statusBadge);
 
   return {
     showMessage: (text) => {
