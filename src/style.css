@@ -43,7 +43,8 @@ body {
 }
 
 .setup-band,
-.hud-band {
+.hud-band,
+.result-band {
   pointer-events: auto;
   background: var(--panel-bg);
   border-top: 1px solid var(--panel-border);
@@ -52,7 +53,8 @@ body {
   -webkit-backdrop-filter: blur(10px);
 }
 
-.setup-band {
+.setup-band,
+.result-band {
   position: absolute;
   left: 0;
   right: 0;
@@ -64,6 +66,12 @@ body {
   flex-wrap: wrap;
   gap: 22px;
   padding: 18px 24px;
+}
+
+.result-band__text {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--accent);
 }
 
 .setup-band__hint {
@@ -98,34 +106,19 @@ body {
   color: var(--accent);
 }
 
-.start-btn,
-.end-btn {
+.start-btn {
   padding: 10px 22px;
   border-radius: 999px;
   border: none;
   font-weight: 600;
   font-size: 0.95rem;
   cursor: pointer;
-}
-
-.start-btn {
   background: var(--accent);
   color: #05130e;
 }
 
 .start-btn:hover {
   background: var(--accent-strong);
-}
-
-.end-btn {
-  background: transparent;
-  border: 1px solid var(--panel-border);
-  color: var(--text-dim);
-}
-
-.end-btn:hover {
-  border-color: var(--danger);
-  color: var(--danger);
 }
 
 .hud-band {
@@ -141,50 +134,54 @@ body {
   padding: 14px 20px;
 }
 
-.hud-score {
-  font-size: 1.15rem;
-  font-weight: 700;
-  min-width: 34px;
-  text-align: center;
+.hud-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--panel-border);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.95rem;
+  color: var(--text);
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
 
-.hud-score--black::before,
-.hud-score--white::before {
+.hud-side::before {
   content: "";
   display: inline-block;
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  margin-right: 8px;
-  vertical-align: middle;
 }
 
-.hud-score--black::before {
+.hud-side--black::before {
   background: var(--black-disc);
   border: 1px solid rgba(255, 255, 255, 0.25);
 }
 
-.hud-score--white::before {
+.hud-side--white::before {
   background: var(--white-disc);
 }
 
-.hud-turn {
-  font-size: 0.95rem;
-  color: var(--text-dim);
-  min-width: 220px;
-  text-align: center;
+.hud-side--active {
+  border-color: var(--accent);
+  background: rgba(79, 209, 165, 0.16);
+  color: var(--accent);
 }
 
-.agent-id-line {
-  position: absolute;
-  top: 64px;
-  left: 0;
-  right: 0;
-  margin: 0;
+.hud-side-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hud-side__score {
+  font-size: 1.15rem;
+  font-weight: 700;
+  min-width: 24px;
   text-align: center;
-  font-size: 0.8rem;
-  color: var(--text-dim);
-  pointer-events: none;
+  color: var(--text);
 }
 
 .message-line {

@@ -1,8 +1,9 @@
 "use strict";
 
 // 3D盤面の上にフローティングするUI(Van.js)。
-// セットアップ帯(先手/後手選択+対局開始)とゲーム中のHUD(スコア/手番+対局終了)を
-// othello.jsのgameStartedに応じて出し分けるだけで、ゲームロジックは持たない。
+// セットアップ帯(先手/後手選択+対局開始)・ゲーム中のHUD(黒/白のスコア)・
+// 結果帯(対局終了時のみ)を、othello.jsのgameStarted/gameOverに応じて出し分けるだけで、
+// ゲームロジックは持たない。対局を終えて次を始めたい場合はリロードする運用とする。
 
 import van from "vanjs-core";
 import { BLACK, WHITE } from "../othello.js";
@@ -13,24 +14,14 @@ function colorLabel(color) {
   return color === BLACK ? "黒" : "白";
 }
 
-function controllerLabel(kind) {
-  return kind === "agent" ? "AIエージェント" : "人間";
+function sideLabel(slot) {
+  return slot.type === "agent" ? `エージェント(${slot.agentId})` : "ユーザー";
 }
 
-function turnText(snap) {
-  if (snap.gameOver) {
-    const result = snap.winner === "draw" ? "引き分け" : `${colorLabel(snap.winner)}の勝ち`;
-    return `対局終了 - ${result}`;
-  }
-  if (!snap.gameStarted || !snap.turn) return "";
-  return `${colorLabel(snap.turn)}の番です (${controllerLabel(snap.players[snap.turn].type)})`;
-}
-
-function agentIdText(snap) {
-  const parts = [];
-  if (snap.players.black.type === "agent") parts.push(`黒: ${snap.players.black.agentId}`);
-  if (snap.players.white.type === "agent") parts.push(`白: ${snap.players.white.agentId}`);
-  return parts.length ? `エージェントID — ${parts.join(" ／ ")}` : "";
+function resultText(snap) {
+  if (!snap.gameOver) return "";
+  if (snap.winner === "draw") return "引き分け";
+  return `${colorLabel(snap.winner)}の勝ち`;
 }
 
 export function mountOverlay(root, engine) {
@@ -61,9 +52,9 @@ export function mountOverlay(root, engine) {
   const setupBand = div(
     { class: "setup-band", style: () => (state.val.gameStarted || starting.val ? "display:none;" : "") },
     span({ class: "setup-band__hint" }, colorLabel(BLACK)),
-    div({ class: "color-choice-group" }, PlayerTypeChoice(BLACK, "human", "人間"), PlayerTypeChoice(BLACK, "agent", "AI")),
+    div({ class: "color-choice-group" }, PlayerTypeChoice(BLACK, "human", "ユーザー"), PlayerTypeChoice(BLACK, "agent", "エージェント")),
     span({ class: "setup-band__hint" }, colorLabel(WHITE)),
-    div({ class: "color-choice-group" }, PlayerTypeChoice(WHITE, "human", "人間"), PlayerTypeChoice(WHITE, "agent", "AI")),
+    div({ class: "color-choice-group" }, PlayerTypeChoice(WHITE, "human", "ユーザー"), PlayerTypeChoice(WHITE, "agent", "エージェント")),
     button(
       {
         class: "start-btn",
@@ -77,17 +68,28 @@ export function mountOverlay(root, engine) {
     )
   );
 
+  function SideBlock(color) {
+    const badge = div(
+      {
+        class: () =>
+          "hud-side hud-side--" + color + (state.val.turn === color && !state.val.gameOver ? " hud-side--active" : ""),
+      },
+      span({ class: "hud-side__label" }, () => sideLabel(state.val.players[color]))
+    );
+    const score = span({ class: "hud-side__score" }, () => String(state.val.scores[color]));
+    return div({ class: "hud-side-group" }, ...(color === BLACK ? [score, badge] : [badge, score]));
+  }
+
   const hudBand = div(
     { class: "hud-band", style: () => (state.val.gameStarted ? "" : "display:none;") },
-    div({ class: "hud-score hud-score--black" }, () => String(state.val.scores.black)),
-    div({ class: "hud-turn" }, () => turnText(state.val)),
-    div({ class: "hud-score hud-score--white" }, () => String(state.val.scores.white)),
-    button({ class: "end-btn", type: "button", onclick: () => engine.returnToSetup() }, "対局終了")
+    SideBlock(BLACK),
+    SideBlock(WHITE)
   );
 
-  const agentIdLine = p(
-    { class: "agent-id-line", style: () => (state.val.gameStarted && agentIdText(state.val) ? "" : "display:none;") },
-    () => agentIdText(state.val)
+  const resultBand = div(
+    { class: "result-band", style: () => (state.val.gameOver ? "" : "display:none;") },
+    span({ class: "result-band__text" }, () => resultText(state.val)),
+    button({ class: "start-btn", type: "button", onclick: () => engine.returnToSetup() }, "対局終了")
   );
 
   const messageLine = p({ class: "message-line" }, () => localMessage.val || state.val.message || "");
@@ -97,7 +99,7 @@ export function mountOverlay(root, engine) {
     () => status.val.text
   );
 
-  van.add(root, setupBand, hudBand, agentIdLine, messageLine, statusBadge);
+  van.add(root, setupBand, hudBand, resultBand, messageLine, statusBadge);
 
   return {
     showMessage: (text) => {

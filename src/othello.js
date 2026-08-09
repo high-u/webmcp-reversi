@@ -163,6 +163,14 @@ export function getSnapshot() {
   };
 }
 
+/** セットアップ画面での担当選択。対局中の状態には一切影響しない。 */
+export function setPendingPlayerType(color, type) {
+  if (color !== BLACK && color !== WHITE) return;
+  if (type !== "human" && type !== "agent") return;
+  pendingPlayerTypes[color] = type;
+  notify();
+}
+
 function resetBoardState() {
   board = createEmptyBoard();
   currentTurn = BLACK;
@@ -172,11 +180,11 @@ function resetBoardState() {
   lastEventMessage = null;
 }
 
-/** セットアップ画面での担当選択。対局中の状態には一切影響しない。 */
-export function setPendingPlayerType(color, type) {
-  if (color !== BLACK && color !== WHITE) return;
-  if (type !== "human" && type !== "agent") return;
-  pendingPlayerTypes[color] = type;
+/** 対局終了後、結果帯の「対局終了」ボタンから呼ばれる。セットアップ画面に戻る。 */
+export function returnToSetup() {
+  if (locked) return;
+  gameStarted = false;
+  resetBoardState();
   notify();
 }
 
@@ -204,14 +212,6 @@ export function startNewGame() {
   pendingAction = { kind: "setup", board: freshBoard };
   notifyPendingAction({ kind: "setup", cells });
   return { ok: true };
-}
-
-/** 「対局終了」。セットアップ画面に戻る。演出中(locked)は何もしない。 */
-export function returnToSetup() {
-  if (locked) return;
-  gameStarted = false;
-  resetBoardState();
-  notify();
 }
 
 function advanceTurnAfterMove(mover) {
