@@ -14,10 +14,12 @@ const overlay = mountOverlay(overlayRoot, engine);
 const boardScene = createBoardScene(sceneContainer, {
   onCellClick: (row, col) => {
     const result = engine.playHumanMove(row, col);
-    if (!result.ok) overlay.showMessage(result.error);
+    if (!result.ok && !result.locked) overlay.showMessage(result.error);
   },
+  onAnimationComplete: () => engine.completeAnimation(),
 });
 
 engine.subscribe((snapshot) => boardScene.update(snapshot));
+engine.subscribePendingAction((intent) => boardScene.playPendingAction(intent));
 
 initWebMCP((status) => overlay.setStatus(status));

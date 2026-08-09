@@ -13,6 +13,17 @@ const PIECE_HEIGHT = 0.16;
 const BOARD_MARGIN = 0.6;
 const BASE_THICKNESS = 0.3;
 
+// 新規配置(対局開始時の初期石も含む)の落下演出。
+const DROP_START_Y = 5;
+const DROP_DURATION_MS = 550;
+const DROP_GROUP_GAP_MS = 120; // 対局開始: 黒グループ→白グループの間隔
+
+// 反転(裏返り)の演出。複数枚は同時に浮き、回転+落下は1枚ずつ時間差をつける。
+const FLIP_LIFT_HEIGHT = 0.9;
+const FLIP_RISE_MS = 220;
+const FLIP_STAGGER_MS = 90;
+const FLIP_FALL_MS = 320;
+
 const COLORS = {
   background: 0x05080a,
   boardCellA: 0x1f5738,
@@ -31,12 +42,38 @@ function cellPosition(row, col) {
   };
 }
 
+function clamp01(t) {
+  return Math.max(0, Math.min(1, t));
+}
+
+// 落下→着地でバウンドしてから静止するイージング(Robert Penner's easeOutBounce)。
+function easeOutBounce(t) {
+  const n1 = 7.5625;
+  const d1 = 2.75;
+  if (t < 1 / d1) return n1 * t * t;
+  if (t < 2 / d1) {
+    const s = t - 1.5 / d1;
+    return n1 * s * s + 0.75;
+  }
+  if (t < 2.5 / d1) {
+    const s = t - 2.25 / d1;
+    return n1 * s * s + 0.9375;
+  }
+  const s = t - 2.625 / d1;
+  return n1 * s * s + 0.984375;
+}
+
+function easeOutCubic(t) {
+  return 1 - Math.pow(1 - t, 3);
+}
+
 /**
  * Three.jsで盤面を描画するシーンを作成する。
  * ゲームロジックには一切依存せず、update(snapshot)に渡されたothello.jsのスナップショット
- * (board/legalMoves/lastMove/gameStarted/gameOver/players/turn)を描画に反映するだけ。
+ * (board/legalMoves/lastMove/gameStarted/gameOver/players/turn)と、
+ * playPendingAction(intent)に渡される着手/対局開始の演出情報を描画に反映するだけ。
  */
-export function createBoardScene(container, { onCellClick } = {}) {
+export function createBoardScene(container, { onCellClick, onAnimationComplete } = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(COLORS.background);
   scene.fog = new THREE.Fog(COLORS.background, 18, 32);
@@ -200,6 +237,133 @@ export function createBoardScene(container, { onCellClick } = {}) {
     onCellClick(row, col);
   });
 
+  // ---------------- 石のアニメーション ----------------
+  // 進行中のアニメーションはすべてここに積み、毎フレーム update(now) を呼ぶ。
+  // update(now) が true を返したら完了として取り除き、バッチの残数を減らす。
+  const activeAnimations = [];
+  let batchRemaining = 0;
+
+  function beginAnimationBatch(count) {
+    batchRemaining = count;
+  }
+
+  function completeOne() {
+    batchRemaining -= 1;
+    if (batchRemaining === 0 && onAnimationComplete) {
+      onAnimationComplete();
+    }
+  }
+
+  function spawnDrop(row, col, color, startTime) {
+    const material = color === "black" ? blackMat : whiteMat;
+    const { x, z } = cellPosition(row, col);
+    const mesh = new THREE.Mesh(pieceGeo, material);
+    mesh.position.set(x, DROP_START_Y, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    pieceGroup.add(mesh);
+    pieceMeshes[row][col] = mesh;
+
+    const restY = PIECE_HEIGHT / 2;
+    activeAnimations.push({
+      update(now) {
+        const t = clamp01((now - startTime) / DROP_DURATION_MS);
+        const eased = easeOutBounce(t);
+        mesh.position.y = Math.max(restY, DROP_START_Y + (restY - DROP_START_Y) * eased);
+        return t >= 1;
+      },
+    });
+  }
+
+  function spawnFlip(row, col, newColor, riseStart, indexInBatch) {
+    const mesh = pieceMeshes[row][col];
+    if (!mesh) return false; // 起こらないはずだが、念のため(呼び出し側でcompleteOne()する)
+
+    const restY = PIECE_HEIGHT / 2;
+    const peakY = restY + FLIP_LIFT_HEIGHT;
+    const fallStart = riseStart + FLIP_RISE_MS + indexInBatch * FLIP_STAGGER_MS;
+    const newMaterial = newColor === "black" ? blackMat : whiteMat;
+    let colorSwapped = false;
+    let phase = "rise";
+
+    activeAnimations.push({
+      update(now) {
+        if (phase === "rise") {
+          const t = clamp01((now - riseStart) / FLIP_RISE_MS);
+          mesh.position.y = restY + (peakY - restY) * easeOutCubic(t);
+          if (now >= riseStart + FLIP_RISE_MS) phase = "hold";
+          return false;
+        }
+        if (phase === "hold") {
+          mesh.position.y = peakY;
+          if (now >= fallStart) phase = "fall";
+          return false;
+        }
+        // phase === "fall": 回転しながら落下し、90度を超えた瞬間に色を切り替える。
+        const t = clamp01((now - fallStart) / FLIP_FALL_MS);
+        const angle = Math.PI * t;
+        mesh.rotation.x = angle;
+        if (!colorSwapped && angle >= Math.PI / 2) {
+          mesh.material = newMaterial;
+          colorSwapped = true;
+        }
+        const eased = easeOutBounce(t);
+        mesh.position.y = Math.max(restY, peakY + (restY - peakY) * eased);
+        if (t >= 1) {
+          mesh.rotation.x = 0;
+          return true;
+        }
+        return false;
+      },
+    });
+    return true;
+  }
+
+  function updateAnimations() {
+    if (activeAnimations.length === 0) return;
+    const now = performance.now();
+    for (let i = activeAnimations.length - 1; i >= 0; i--) {
+      const done = activeAnimations[i].update(now);
+      if (done) {
+        activeAnimations.splice(i, 1);
+        completeOne();
+      }
+    }
+  }
+
+  function playSetupIntro(cells) {
+    const blackCells = cells.filter((c) => c.color === "black");
+    const whiteCells = cells.filter((c) => c.color === "white");
+    beginAnimationBatch(blackCells.length + whiteCells.length);
+
+    const blackStart = performance.now();
+    for (const { row, col } of blackCells) spawnDrop(row, col, "black", blackStart);
+
+    setTimeout(() => {
+      const whiteStart = performance.now();
+      for (const { row, col } of whiteCells) spawnDrop(row, col, "white", whiteStart);
+    }, DROP_DURATION_MS + DROP_GROUP_GAP_MS);
+  }
+
+  function playMoveAnimation({ mover, placedCell, flippedCells }) {
+    beginAnimationBatch(1 + flippedCells.length);
+    const now = performance.now();
+    spawnDrop(placedCell.row, placedCell.col, mover, now);
+    const riseStart = now + DROP_DURATION_MS;
+    flippedCells.forEach(({ row, col }, i) => {
+      const started = spawnFlip(row, col, mover, riseStart, i);
+      if (!started) completeOne();
+    });
+  }
+
+  function playPendingAction(intent) {
+    if (intent.kind === "setup") {
+      playSetupIntro(intent.cells);
+    } else if (intent.kind === "move") {
+      playMoveAnimation(intent);
+    }
+  }
+
   function syncPieces(board) {
     for (let r = 0; r < SIZE; r++) {
       for (let c = 0; c < SIZE; c++) {
@@ -259,8 +423,9 @@ export function createBoardScene(container, { onCellClick } = {}) {
 
   renderer.setAnimationLoop(() => {
     controls.update();
+    updateAnimations();
     renderer.render(scene, camera);
   });
 
-  return { update, resize };
+  return { update, resize, playPendingAction };
 }

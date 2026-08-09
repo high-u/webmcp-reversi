@@ -30,6 +30,22 @@ function toToolStateJSON(snapshot) {
   };
 }
 
+// 着手/対局開始は保留(locked)を経由するため、成功応答は「盤面に確定反映された後」の
+// 状態を返したい。次にnotify()される(=演出が完了しcompleteAnimation()された)瞬間まで待つ。
+function waitForNextCommit() {
+  return new Promise((resolve) => {
+    let first = true;
+    const unsubscribe = engine.subscribe((snapshot) => {
+      if (first) {
+        first = false;
+        return;
+      }
+      unsubscribe();
+      resolve(snapshot);
+    });
+  });
+}
+
 async function registerWebMCPTools(api) {
   await api.registerTool({
     name: "get_game_state",
@@ -53,14 +69,15 @@ async function registerWebMCPTools(api) {
     },
     execute: async ({ row, col, color }) => {
       const result = engine.playAgentMove(row, col, color);
-      const stateJSON = toToolStateJSON(engine.getSnapshot());
-      if (result.ok) {
-        return { content: [{ type: "text", text: JSON.stringify(stateJSON) }] };
+      if (!result.ok) {
+        const stateJSON = toToolStateJSON(engine.getSnapshot());
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: result.error, state: stateJSON }) }],
+          isError: true,
+        };
       }
-      return {
-        content: [{ type: "text", text: JSON.stringify({ error: result.error, state: stateJSON }) }],
-        isError: true,
-      };
+      const snapshot = await waitForNextCommit();
+      return { content: [{ type: "text", text: JSON.stringify(toToolStateJSON(snapshot)) }] };
     },
   });
 
@@ -69,8 +86,16 @@ async function registerWebMCPTools(api) {
     description: "オセロを初期状態にリセットして新しい対局を開始します(セットアップ画面で選択中の先手/後手をそのまま適用します)。",
     inputSchema: { type: "object", properties: {} },
     execute: async () => {
-      engine.startNewGame();
-      return { content: [{ type: "text", text: JSON.stringify(toToolStateJSON(engine.getSnapshot())) }] };
+      const result = engine.startNewGame();
+      if (!result.ok) {
+        const stateJSON = toToolStateJSON(engine.getSnapshot());
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: result.error, state: stateJSON }) }],
+          isError: true,
+        };
+      }
+      const snapshot = await waitForNextCommit();
+      return { content: [{ type: "text", text: JSON.stringify(toToolStateJSON(snapshot)) }] };
     },
   });
 }

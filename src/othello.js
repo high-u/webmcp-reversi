@@ -4,6 +4,12 @@
 // DOM / Three.js / WebMCP には一切依存しない。
 // 状態を変更する関数は必ず内部で notify() を呼ぶので、
 // 呼び出し側(UI・WebMCP)が再描画を呼び忘れることはない。
+//
+// 着手・対局開始は、盤面に反映される前に一度「保留」を経由する。
+// 保留中(locked)は他の着手を一切受け付けない。呼び出し側(3D描画)が
+// 演出を再生し終えて completeAnimation() を呼ぶまで、board/turn/scores 等の
+// 公式な状態(getSnapshot()の内容)は変化しない。これにより、手番やヒント表示が
+// 盤面の見た目より先走ることはない。
 
 const SIZE = 8;
 export const BLACK = "black";
@@ -28,8 +34,12 @@ function inBounds(r, c) {
   return r >= 0 && r < SIZE && c >= 0 && c < SIZE;
 }
 
+function createEmptyBoard() {
+  return Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
+}
+
 function createInitialBoard() {
-  const b = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
+  const b = createEmptyBoard();
   b[3][3] = WHITE;
   b[3][4] = BLACK;
   b[4][3] = BLACK;
@@ -83,7 +93,7 @@ function countDiscs(b) {
 
 // ---------------- state ----------------
 
-let board = createInitialBoard();
+let board = createEmptyBoard();
 let currentTurn = BLACK;
 let gameOver = false;
 let winner = null;
@@ -96,11 +106,20 @@ let pendingHumanColor = BLACK;
 // 常にどちらか一方が human、もう一方が agent(人間対人間・エージェント対エージェントは不可)。
 const activePlayers = { black: "human", white: "agent" };
 
+// 着手/対局開始が受理されてから、3D描画側の演出が完了するまでの保留状態。
+let locked = false;
+let pendingAction = null; // { kind: "move", mover, row, col, flips } | { kind: "setup", board }
+
 const listeners = new Set();
+const pendingActionListeners = new Set();
 
 function notify() {
   const snapshot = getSnapshot();
   for (const fn of listeners) fn(snapshot);
+}
+
+function notifyPendingAction(intent) {
+  for (const fn of pendingActionListeners) fn(intent);
 }
 
 /** 状態が変わるたびに呼ばれる。登録直後にも現在のスナップショットで一度呼ばれる。 */
@@ -108,6 +127,15 @@ export function subscribe(fn) {
   listeners.add(fn);
   fn(getSnapshot());
   return () => listeners.delete(fn);
+}
+
+/**
+ * 着手/対局開始が受理された瞬間(まだ盤面には反映されていない)に呼ばれる。
+ * 3D描画側はこれを見て演出を開始し、終わったら completeAnimation() を呼ぶ。
+ */
+export function subscribePendingAction(fn) {
+  pendingActionListeners.add(fn);
+  return () => pendingActionListeners.delete(fn);
 }
 
 export function getSnapshot() {
@@ -127,7 +155,7 @@ export function getSnapshot() {
 }
 
 function resetBoardState() {
-  board = createInitialBoard();
+  board = createEmptyBoard();
   currentTurn = BLACK;
   gameOver = false;
   winner = null;
@@ -142,17 +170,32 @@ export function setPendingHumanColor(color) {
   notify();
 }
 
-/** 「対局開始」。選択中の色を確定させて新しい対局を始める。 */
+/**
+ * 「対局開始」。選択中の色を確定させて新しい対局を始める。
+ * 演出中(locked)は受け付けない。盤面への反映は completeAnimation() 呼び出し時。
+ */
 export function startNewGame() {
+  if (locked) {
+    return { ok: false, error: "処理中です。少し待ってから、もう一度お試しください。", locked: true };
+  }
   activePlayers.black = pendingHumanColor === BLACK ? "human" : "agent";
   activePlayers.white = pendingHumanColor === WHITE ? "human" : "agent";
-  gameStarted = true;
-  resetBoardState();
-  notify();
+  const freshBoard = createInitialBoard();
+  const cells = [];
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      if (freshBoard[r][c]) cells.push({ row: r, col: c, color: freshBoard[r][c] });
+    }
+  }
+  locked = true;
+  pendingAction = { kind: "setup", board: freshBoard };
+  notifyPendingAction({ kind: "setup", cells });
+  return { ok: true };
 }
 
-/** 「対局終了」。セットアップ画面に戻る。対局中・対局後どちらからでも呼べる。 */
+/** 「対局終了」。セットアップ画面に戻る。演出中(locked)は何もしない。 */
 export function returnToSetup() {
+  if (locked) return;
   gameStarted = false;
   resetBoardState();
   notify();
@@ -177,6 +220,7 @@ function advanceTurnAfterMove(mover) {
   lastEventMessage = "両者とも置ける場所がないため対局終了です。";
 }
 
+/** locked チェック済みの前提で呼ばれる。着手を検証し、受理できれば保留状態にする。 */
 function attemptMove(row, col, expectedColor) {
   if (!gameStarted) {
     return { ok: false, error: "対局がまだ開始されていません。" };
@@ -195,11 +239,41 @@ function attemptMove(row, col, expectedColor) {
   if (!flips) {
     return { ok: false, error: "そのマスには置けません(合法手ではありません)。" };
   }
-  board[row][col] = mover;
-  for (const [r, c] of flips) board[r][c] = mover;
-  lastMove = { row, col };
-  advanceTurnAfterMove(mover);
+  locked = true;
+  pendingAction = { kind: "move", mover, row, col, flips };
+  notifyPendingAction({
+    kind: "move",
+    mover,
+    placedCell: { row, col },
+    flippedCells: flips.map(([r, c]) => ({ row: r, col: c })),
+  });
   return { ok: true, mover };
+}
+
+/**
+ * 3D描画側が、保留中の着手/対局開始の演出を再生し終えたら呼ぶ。
+ * ここで初めて盤面・手番・スコア等の公式な状態が確定し、notify()される。
+ */
+export function completeAnimation() {
+  if (!pendingAction) return;
+  if (pendingAction.kind === "move") {
+    const { mover, row, col, flips } = pendingAction;
+    board[row][col] = mover;
+    for (const [r, c] of flips) board[r][c] = mover;
+    lastMove = { row, col };
+    advanceTurnAfterMove(mover);
+  } else if (pendingAction.kind === "setup") {
+    board = pendingAction.board;
+    currentTurn = BLACK;
+    gameOver = false;
+    winner = null;
+    lastMove = null;
+    lastEventMessage = null;
+    gameStarted = true;
+  }
+  pendingAction = null;
+  locked = false;
+  notify();
 }
 
 function currentTurnIsHuman() {
@@ -208,12 +282,13 @@ function currentTurnIsHuman() {
 
 /** ブラウザUIのクリック専用。人間の番でなければ何もしない。 */
 export function playHumanMove(row, col) {
+  if (locked) {
+    return { ok: false, error: "直前の手を処理中です。少し待ってから、もう一度お試しください。", locked: true };
+  }
   if (!currentTurnIsHuman()) {
     return { ok: false, error: "今は人間の番ではありません。" };
   }
-  const result = attemptMove(row, col);
-  if (result.ok) notify();
-  return result;
+  return attemptMove(row, col);
 }
 
 function agentColor() {
@@ -225,6 +300,9 @@ function agentColor() {
  * 常にエージェント側の色として扱い、今がエージェントの番でなければエラーにする。
  */
 export function playAgentMove(row, col, color) {
+  if (locked) {
+    return { ok: false, error: "直前の手を処理中です。少し待ってから、もう一度お試しください。", locked: true };
+  }
   if (!gameStarted) {
     return { ok: false, error: "対局がまだ開始されていません。ブラウザで「対局開始」を押してから着手してください。" };
   }
@@ -235,7 +313,5 @@ export function playAgentMove(row, col, color) {
   if (color && color !== expected) {
     return { ok: false, error: `WebMCPエージェントが担当している色は ${expected} です。指定された色(${color})と一致しません。` };
   }
-  const result = attemptMove(row, col, expected);
-  if (result.ok) notify();
-  return result;
+  return attemptMove(row, col, expected);
 }
