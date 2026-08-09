@@ -14,8 +14,8 @@ const BASE_THICKNESS = 0.3;
 
 const COLORS = {
   background: 0x05080a,
-  boardCellA: 0x123322,
-  boardCellB: 0x0f2c1d,
+  boardCellA: 0x1f5738,
+  boardCellB: 0x1a4b31,
   base: 0x0a0d10,
   black: 0x161616,
   white: 0xf2f0e8,
@@ -38,7 +38,7 @@ function cellPosition(row, col) {
 export function createBoardScene(container, { onCellClick } = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(COLORS.background);
-  scene.fog = new THREE.Fog(COLORS.background, 14, 26);
+  scene.fog = new THREE.Fog(COLORS.background, 18, 32);
 
   const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
   camera.position.set(0, 12.2, 10.2);
@@ -46,14 +46,26 @@ export function createBoardScene(container, { onCellClick } = {}) {
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   container.appendChild(renderer.domElement);
 
-  const ambient = new THREE.AmbientLight(0x8fa8bf, 0.55);
+  const ambient = new THREE.AmbientLight(0x8fa8bf, 1.5);
   scene.add(ambient);
-  const key = new THREE.DirectionalLight(0xfff3de, 1.1);
+  const key = new THREE.DirectionalLight(0xfff3de, 1.5);
   key.position.set(4, 10, 6);
+  key.castShadow = true;
+  key.shadow.mapSize.set(2048, 2048);
+  key.shadow.camera.left = -6;
+  key.shadow.camera.right = 6;
+  key.shadow.camera.top = 6;
+  key.shadow.camera.bottom = -6;
+  key.shadow.camera.near = 1;
+  key.shadow.camera.far = 25;
+  key.shadow.bias = -0.0015;
+  key.shadow.radius = 3;
   scene.add(key);
-  const rim = new THREE.DirectionalLight(0x4fd1a5, 0.3);
+  const rim = new THREE.DirectionalLight(0x4fd1a5, 0.35);
   rim.position.set(-6, 4, -6);
   scene.add(rim);
 
@@ -65,6 +77,7 @@ export function createBoardScene(container, { onCellClick } = {}) {
   const baseMat = new THREE.MeshStandardMaterial({ color: COLORS.base, roughness: 0.85, metalness: 0.1 });
   const baseMesh = new THREE.Mesh(baseGeo, baseMat);
   baseMesh.position.y = -BASE_THICKNESS / 2 - CELL_THICKNESS;
+  baseMesh.receiveShadow = true;
   scene.add(baseMesh);
 
   const cellGeo = new THREE.BoxGeometry(CELL_SIZE, CELL_THICKNESS, CELL_SIZE);
@@ -79,6 +92,7 @@ export function createBoardScene(container, { onCellClick } = {}) {
       const mesh = new THREE.Mesh(cellGeo, (r + c) % 2 === 0 ? cellMatA : cellMatB);
       mesh.position.set(x, -CELL_THICKNESS / 2, z);
       mesh.userData = { row: r, col: c };
+      mesh.receiveShadow = true;
       cellGroup.add(mesh);
       cellMeshes[r][c] = mesh;
     }
@@ -168,6 +182,8 @@ export function createBoardScene(container, { onCellClick } = {}) {
           const { x, z } = cellPosition(r, c);
           const mesh = new THREE.Mesh(pieceGeo, material);
           mesh.position.set(x, PIECE_HEIGHT / 2, z);
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
           pieceGroup.add(mesh);
           pieceMeshes[r][c] = mesh;
         } else if (existing.material !== material) {
