@@ -1,0 +1,274 @@
+:root {
+  --board-green: #1e7d3c;
+  --board-green-dark: #145c2c;
+  --board-line: #0c3d1c;
+  --black-disc: #1a1a1a;
+  --white-disc: #f5f5f0;
+  --bg: #0f2419;
+  --panel-bg: #f7f7f5;
+  --text: #1a1a1a;
+  --accent: #2f9e5b;
+  --danger: #c0392b;
+  --hint: rgba(255, 255, 255, 0.55);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Segoe UI", sans-serif;
+  color: var(--text);
+  display: flex;
+  justify-content: center;
+  padding: 24px 12px;
+}
+
+.app {
+  width: 100%;
+  max-width: 640px;
+  background: var(--panel-bg);
+  border-radius: 16px;
+  padding: 20px 20px 28px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+header h1 {
+  margin: 0 0 4px;
+  font-size: 1.6rem;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.subtitle {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: #666;
+}
+
+.webmcp-banner {
+  font-size: 0.8rem;
+  padding: 6px 10px;
+  border-radius: 8px;
+  margin-bottom: 14px;
+  display: inline-block;
+}
+
+.webmcp-banner--pending {
+  background: #eee;
+  color: #666;
+}
+
+.webmcp-banner--ok {
+  background: #e2f6e9;
+  color: #1e7d3c;
+}
+
+.webmcp-banner--unavailable {
+  background: #fdecea;
+  color: var(--danger);
+}
+
+.players-config {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  background: #eef6f0;
+  border: 1px solid #d3e6d9;
+  border-radius: 10px;
+}
+
+.players-config-note {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  font-size: 0.78rem;
+  color: #4d6b58;
+}
+
+.player-assignment {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  justify-content: center;
+  font-size: 0.85rem;
+  color: #555;
+  margin-bottom: 14px;
+}
+
+.assignment-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.assignment-item strong {
+  color: var(--text);
+}
+
+.player-config {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+}
+
+.player-config label {
+  font-weight: 600;
+}
+
+.player-config select {
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  font-size: 0.85rem;
+}
+
+#new-game-btn {
+  margin-left: auto;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#new-game-btn:hover {
+  filter: brightness(1.05);
+}
+
+.game-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  background: #fff;
+  border-radius: 10px;
+}
+
+.score {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.3rem;
+  font-weight: 700;
+  min-width: 60px;
+}
+
+.turn-indicator {
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.status-message {
+  min-height: 22px;
+  text-align: center;
+  font-size: 0.9rem;
+  color: #555;
+  margin-bottom: 10px;
+}
+
+.disc-icon {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+.disc-icon--black {
+  background: radial-gradient(circle at 35% 30%, #555, var(--black-disc));
+}
+
+.disc-icon--white {
+  background: radial-gradient(circle at 35% 30%, #fff, var(--white-disc));
+}
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr);
+  gap: 2px;
+  background: var(--board-line);
+  border: 3px solid var(--board-line);
+  border-radius: 6px;
+  overflow: hidden;
+  aspect-ratio: 1 / 1;
+  width: 100%;
+}
+
+.cell {
+  background: var(--board-green);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+  aspect-ratio: 1 / 1;
+}
+
+.cell:hover {
+  background: var(--board-green-dark);
+}
+
+.cell:disabled,
+.cell.cell--locked {
+  cursor: not-allowed;
+}
+
+.cell .disc {
+  width: 82%;
+  height: 82%;
+  border-radius: 50%;
+  transition: transform 0.15s ease;
+}
+
+.cell .disc--black {
+  background: radial-gradient(circle at 35% 30%, #4a4a4a, var(--black-disc));
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+
+.cell .disc--white {
+  background: radial-gradient(circle at 35% 30%, #ffffff, var(--white-disc));
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+
+.cell .hint {
+  width: 26%;
+  height: 26%;
+  border-radius: 50%;
+  background: var(--hint);
+}
+
+.cell.cell--last-move::after {
+  content: "";
+  position: absolute;
+  inset: 6%;
+  border: 2px solid #ffd54a;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+footer {
+  margin-top: 18px;
+  font-size: 0.75rem;
+  color: #777;
+  line-height: 1.5;
+}
+
+footer code {
+  background: #eee;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
