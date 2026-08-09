@@ -1,0 +1,22 @@
+{
+  "name": "webmcp-othello",
+  "version": "1.0.0",
+  "description": "WebMCP (Web Model Context Protocol) を使って、外部のAIエージェントが対局を操作できるオセロ実装。",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "vite": "^8.2.1"
+  },
+  "dependencies": {
+    "three": "^0.185.1",
+    "vanjs-core": "^1.6.1"
+  }
+}

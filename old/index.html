@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>オセロ - WebMCP対応</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>オセロ<span class="subtitle">WebMCP対応版</span></h1>
+      <div id="webmcp-banner" class="webmcp-banner webmcp-banner--pending">WebMCP対応を確認中...</div>
+    </header>
+
+    <section class="players-config">
+      <div class="player-config">
+        <label for="human-color">人間の担当</label>
+        <select id="human-color">
+          <option value="black" selected>黒(先手)</option>
+          <option value="white">白(後手)</option>
+        </select>
+      </div>
+      <button id="new-game-btn" type="button">新しい対局</button>
+      <p class="players-config-note">選ばなかった色はWebMCPツール経由のエージェントが担当します(人間対人間・エージェント対エージェントは不可)。</p>
+    </section>
+
+    <section id="player-assignment" class="player-assignment" aria-live="polite" hidden>
+      <span class="assignment-item">
+        <span class="disc-icon disc-icon--black" aria-hidden="true"></span>
+        先手: <strong id="assignment-black">-</strong>
+      </span>
+      <span class="assignment-item">
+        <span class="disc-icon disc-icon--white" aria-hidden="true"></span>
+        後手: <strong id="assignment-white">-</strong>
+      </span>
+    </section>
+
+    <section class="game-info">
+      <div class="score">
+        <span class="disc-icon disc-icon--black" aria-hidden="true"></span>
+        <span id="black-score">2</span>
+      </div>
+      <div id="turn-indicator" class="turn-indicator"></div>
+      <div class="score">
+        <span class="disc-icon disc-icon--white" aria-hidden="true"></span>
+        <span id="white-score">2</span>
+      </div>
+    </section>
+
+    <div id="status-message" class="status-message" role="status" aria-live="polite"></div>
+
+    <main>
+      <div id="board" class="board" role="grid" aria-label="オセロ盤"></div>
+    </main>
+
+    <footer>
+      <p>外部AIエージェントはWebMCPツール <code>get_game_state</code> / <code>make_move</code> / <code>new_game</code> を通じてこの対局を操作できます。</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

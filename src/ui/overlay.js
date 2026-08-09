@@ -1,0 +1,82 @@
+"use strict";
+
+// 3D盤面の上にフローティングするUI(Van.js)。
+// セットアップ帯(先手/後手選択+対局開始)とゲーム中のHUD(スコア/手番+対局終了)を
+// othello.jsのgameStartedに応じて出し分けるだけで、ゲームロジックは持たない。
+
+import van from "vanjs-core";
+import { BLACK, WHITE } from "../othello.js";
+
+const { div, button, span, p } = van.tags;
+
+function colorLabel(color) {
+  return color === BLACK ? "黒" : "白";
+}
+
+function controllerLabel(kind) {
+  return kind === "agent" ? "AIエージェント" : "人間";
+}
+
+function turnText(snap) {
+  if (snap.gameOver) {
+    const result = snap.winner === "draw" ? "引き分け" : `${colorLabel(snap.winner)}の勝ち`;
+    return `対局終了 - ${result}`;
+  }
+  if (!snap.gameStarted || !snap.turn) return "";
+  return `${colorLabel(snap.turn)}の番です (${controllerLabel(snap.players[snap.turn])})`;
+}
+
+export function mountOverlay(root, engine) {
+  const state = van.state(engine.getSnapshot());
+  const localMessage = van.state("");
+  const status = van.state({ kind: "pending", text: "WebMCP対応を確認中..." });
+
+  engine.subscribe((snapshot) => {
+    state.val = snapshot;
+    localMessage.val = "";
+  });
+
+  function ColorChoice(color, label) {
+    return button(
+      {
+        type: "button",
+        class: () => "color-choice" + (state.val.pendingHumanColor === color ? " color-choice--selected" : ""),
+        onclick: () => engine.setPendingHumanColor(color),
+      },
+      label
+    );
+  }
+
+  const setupBand = div(
+    { class: "setup-band", style: () => (state.val.gameStarted ? "display:none;" : "") },
+    span({ class: "setup-band__hint" }, "あなたの色"),
+    div({ class: "color-choice-group" }, ColorChoice(BLACK, "先手(黒)"), ColorChoice(WHITE, "後手(白)")),
+    button({ class: "start-btn", type: "button", onclick: () => engine.startNewGame() }, "対局開始")
+  );
+
+  const hudBand = div(
+    { class: "hud-band", style: () => (state.val.gameStarted ? "" : "display:none;") },
+    div({ class: "hud-score hud-score--black" }, () => String(state.val.scores.black)),
+    div({ class: "hud-turn" }, () => turnText(state.val)),
+    div({ class: "hud-score hud-score--white" }, () => String(state.val.scores.white)),
+    button({ class: "end-btn", type: "button", onclick: () => engine.returnToSetup() }, "対局終了")
+  );
+
+  const messageLine = p({ class: "message-line" }, () => localMessage.val || state.val.message || "");
+
+  const statusBadge = div(
+    { class: () => `status-badge status-badge--${status.val.kind}` },
+    () => status.val.text
+  );
+
+  van.add(root, setupBand, hudBand, messageLine, statusBadge);
+
+  return {
+    showMessage: (text) => {
+      localMessage.val = text;
+    },
+    setStatus: (next) => {
+      status.val = next;
+    },
+  };
+}

@@ -1,47 +1,24 @@
 # オセロ (Othello) - WebMCP対応版
 
-WebMCP (Web Model Context Protocol) を使って、外部のAIエージェントが対局を操作できるオセロ実装。Three.jsによる3D盤面と、Van.jsによるフローティングUIを持つ。
+WebMCP (Web Model Context Protocol) を使って、外部のAIエージェントが対局を操作できる最低限のオセロ実装。
 
 ## 技術スタック
 
-- **Three.js**(3D描画)+ **Vite**(ビルド/devサーバー)+ **Van.js**(軽量リアクティブUI)
-- ゲームロジック(`src/othello.js`)とWebMCPツール登録(`src/webmcp.js`)を別ファイルに分離してある。`webmcp.js` は `othello.js` にのみ依存し、DOM描画やThree.jsのシーンには一切触れない。「外部のAIエージェントに何を公開しているか」を`webmcp.js`を読むだけで把握できるようにするため(ゲーム側からWebMCPへの依存は逆に問題ない)
-- 刷新前の素のHTML/CSS/JS版(ビルド不要・`file://`でも動く実装)は `old/` ディレクトリにそのまま残してある
-
-### ファイル構成
-
-```
-index.html          Viteのエントリ。#scene-container(3D描画先)と#overlay-root(UIオーバーレイ先)を用意するだけ
-vite.config.js
-src/
-  main.js            engine/scene/ui/webmcpを初期化して繋ぐブートストラップ
-  othello.js         ゲームエンジン(盤面・ルール・状態)。DOM/Three.js/WebMCPに非依存。
-                      状態を変更する関数は必ず内部でnotify()を呼ぶので、呼び出し側が再描画を呼び忘れることがない
-  webmcp.js          WebMCPツール登録(get_game_state / make_move / new_game)。othello.jsのみに依存
-  style.css          ダーク基調のグローバルスタイル
-  scene/scene.js     Three.jsのシーン構築・盤と石の描画・raycastingによるクリック検知
-  ui/overlay.js      Van.jsで書く3D盤面上のフローティングUI(セットアップ帯/対局中HUD)
-old/                 刷新前の素のHTML/CSS/JS実装(参考用)
-```
-
-### セットアップ・起動
+- `index.html` / `style.css` / `app.js` の素のHTML/CSS/JavaScriptのみ
+- ビルド不要。`file://` でも動くが、WebMCPの動作確認は `http://localhost` 経由を推奨(セキュアコンテキストの扱いが安定するため)
 
 ```bash
-npm install
-npm run dev
-# 表示されるURL(通常 http://localhost:5173 )をブラウザで開く
+python3 -m http.server 8000
+# ブラウザで http://localhost:8000 を開く
 ```
-
-npm系のパッケージ(three / vanjs-core)をESMのbare specifierで読み込んでいるため、Viteのdevサーバー(または本番ビルド)を経由しない`file://`直開きはもう動かない。本番ビルドは `npm run build`(`dist/`に出力)、ビルド後の成果物確認は `npm run preview`。
 
 ## ゲーム仕様
 
 - 標準的な8x8オセロのルール(合法手判定・石の反転・打てる場所がない場合の自動パス・両者パスで終局・石数勝敗判定)
-- 「人間」と「AIエージェント(WebMCP経由)」が必ず1人ずつ対局する(人間対人間・エージェント対エージェントは不可)。人間がどちらの色(先手=黒 / 後手=白)を担当するかはセットアップ帯で選べる
-  - **人間**: 3D盤面のマスをクリックして着手する(raycastingでどのマスかを判定)。人間の番のときだけ有効
+- 「人間」と「AIエージェント(WebMCP経由)」が必ず1人ずつ対局する(人間対人間・エージェント対エージェントは不可)。人間がどちらの色(黒=先手 / 白=後手)を担当するかは対局開始前に選択できる
+  - **人間**: ブラウザの盤面を直接クリックして着手する。人間の番のときだけ盤面クリックが有効になる
   - **AIエージェント**: このアプリ自体には対戦用の思考ルーチンは組み込まれていない。「AIエージェント」= WebMCPツール経由で外部から操作される人・プログラムを指す。`make_move` はエージェント側の色を常に暗黙に使い、エージェントの番でなければエラーになる(詳細は下記)
-  - 3D盤面は常時表示されており、その上にUIがフローティング表示される。対局前は**セットアップ帯**(「あなたの色」選択+「対局開始」ボタン)、対局中・終局後は**HUD帯**(スコア・手番表示+「対局終了」ボタン)に切り替わる
-  - 「対局開始」(またはWebMCPの `new_game` ツール)を押すまでは対局は開始されておらず、盤面クリックも `make_move` も無効。「対局終了」を押すといつでも(対局中でも終局後でも)盤面が初期化されセットアップ帯に戻る
+  - 「新しい対局」ボタン(またはWebMCPの `new_game` ツール)を押すまでは対局は開始されておらず、盤面クリックも `make_move` も無効
 
 ### 手番の区別: 「ブラウザUIから打つ」 vs 「WebMCP経由で打つ」
 
@@ -57,7 +34,7 @@ WebMCPのツール呼び出しには呼び出し元(どのエージェントか)
 |---|---|
 | `get_game_state` | 盤面・手番・スコア・合法手一覧・プレイヤー割り当て(黒/白それぞれ人間かエージェントか)・対局開始済みか(`gameStarted`)・対局状況をJSONで返す(読み取り専用) |
 | `make_move` | `{row, col}` (0-7の整数、任意で `color`)を指定して、**エージェントに割り当てられた色**の石を置く。対局未開始・エージェントの番でない・非合法手の場合はエラーを返す。`color` を指定した場合はエージェントの色と一致しないとエラーになる |
-| `new_game` | セットアップ帯で選択中の人間の担当色を確定させて対局を開始する(ブラウザの「対局開始」ボタンと同じ処理) |
+| `new_game` | ドロップダウンで選ばれている人間の担当色を確定させて対局を開始する(ブラウザの「新しい対局」ボタンと同じ処理) |
 
 ## WebMCPとは(調査結果)
 
@@ -81,7 +58,7 @@ console.log(typeof document.modelContext.registerTool); // "function"
 console.log(typeof navigator.modelContext);              // "undefined"
 ```
 
-`src/webmcp.js` では `document.modelContext` を優先し、なければ `navigator.modelContext` にフォールバックする両対応の実装にしてある(将来的な仕様変更やブラウザ差異への保険)。
+`app.js` では `document.modelContext` を優先し、なければ `navigator.modelContext` にフォールバックする両対応の実装にしてある(将来的な仕様変更やブラウザ差異への保険)。
 
 ## 動作確認環境
 
@@ -102,15 +79,10 @@ console.log(typeof navigator.modelContext);              // "undefined"
 - `execute_webmcp_tool` 経由で実際に `get_game_state` / `make_move` / `new_game` を呼び出し、盤面が反転・手番交代することを確認(実際にClaude Codeを白番のエージェントとして対局し、複数手を打った)
 - 対局未開始(`gameStarted:false`)の状態で `make_move` を呼ぶとエラーになることを確認
 - 人間(黒)の番に、WebMCP経由で `color:"black"` を明示してエージェントが横取り着手を試みるとエラーになることを確認(修正前は実際にこの横取りが成功してしまうことを確認した上で、修正後にブロックされることを検証した)
-- Three.js + Vite + Van.js への刷新後、`npm run dev` のViteサーバー上でも `document.modelContext.registerTool()` が問題なく動作し、`src/webmcp.js` から3ツールが登録されることを確認
-- 3D盤面でのクリック(raycastingによるマス判定)が合法手判定・石の反転・手番交代に正しく反映されることを確認
-- WebMCPの `make_move` で着手した内容が3D盤面(石の追加・色変更・直前手のハイライトリング・合法手ヒットの再計算)にリアルタイムで反映されることを確認(`othello.js` の subscribe/notify によりUIとWebMCPが同じ状態変更経路を通るため、再描画の呼び忘れが構造的に起きない)
-- 「対局終了」ボタンで対局中・終局後どちらからでもセットアップ帯に戻り、盤面が初期化されることを確認
 
 ## 未検証
 
-- 人間 vs 人間、エージェント vs エージェントの構成は仕様上選択できないよう変更済み(人間とエージェントが必ず1人ずつになる)。この制約自体はUI上確認済みだが、あらゆる操作順序での回避可否までは網羅的に検証していない
-- カメラワーク(対局開始時の演出、操作に応じた視点変更)や石のフリップアニメーションは未実装。現状は固定カメラ+瞬時切り替えのみで、次のステップとして予定している
+- 人間 vs 人間、エージェント vs エージェントの構成は仕様上選択できないよう変更済み(人間とエージェントが必ず1人ずつになる)。この制約自体はUI上(ドロップダウンが単一選択になっている)確認済みだが、あらゆる操作順序での回避可否までは網羅的に検証していない
 
 ## 外部AIエージェントからの接続方法
 
@@ -152,7 +124,7 @@ HTTP経由で使いたい特殊な事情がある場合は `mcp-proxy` で包ん
 ### セットアップ手順
 
 1. Chromeで `chrome://inspect/#remote-debugging` を開き、リモートデバッグ接続を許可する(一度だけ)。有効にすると `Server running at: 127.0.0.1:9222` と表示される
-2. `npm run dev` でViteのdevサーバーを起動し、表示されたURL(通常 `http://localhost:5173`)をそのChrome Canaryで開いた状態にしておく
+2. オセロのページ(`index.html`)をそのChrome Canaryで開いた状態にしておく
 3. MCPクライアント(Claude Code)にサーバーを登録する(実施済み、下記コマンド)
 
 ```bash
