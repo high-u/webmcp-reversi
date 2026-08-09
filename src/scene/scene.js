@@ -1,6 +1,7 @@
 "use strict";
 
 import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 const SIZE = 8;
 const CELL_SIZE = 1;
@@ -49,6 +50,19 @@ export function createBoardScene(container, { onCellClick } = {}) {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   container.appendChild(renderer.domElement);
+
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.target.set(0, 0, 0);
+  controls.enablePan = false;
+  controls.enableZoom = true;
+  controls.minDistance = 6;
+  controls.maxDistance = 22;
+  controls.minPolarAngle = 0.15;
+  controls.maxPolarAngle = Math.PI / 2 - 0.05;
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.1;
+  controls.rotateSpeed = 0.6;
+  controls.update();
 
   const ambient = new THREE.AmbientLight(0x8fa8bf, 1.5);
   scene.add(ambient);
@@ -153,7 +167,28 @@ export function createBoardScene(container, { onCellClick } = {}) {
 
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
+
+  let pointerDownPos = null;
+  let dragged = false;
+  renderer.domElement.addEventListener("pointerdown", (event) => {
+    pointerDownPos = { x: event.clientX, y: event.clientY };
+    dragged = false;
+  });
+  renderer.domElement.addEventListener("pointermove", (event) => {
+    if (!pointerDownPos) return;
+    const dx = event.clientX - pointerDownPos.x;
+    const dy = event.clientY - pointerDownPos.y;
+    if (Math.hypot(dx, dy) > 4) dragged = true;
+  });
+  renderer.domElement.addEventListener("pointerup", () => {
+    pointerDownPos = null;
+  });
+
   renderer.domElement.addEventListener("click", (event) => {
+    if (dragged) {
+      dragged = false;
+      return;
+    }
     if (!onCellClick) return;
     const rect = renderer.domElement.getBoundingClientRect();
     pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -223,6 +258,7 @@ export function createBoardScene(container, { onCellClick } = {}) {
   }
 
   renderer.setAnimationLoop(() => {
+    controls.update();
     renderer.render(scene, camera);
   });
 
