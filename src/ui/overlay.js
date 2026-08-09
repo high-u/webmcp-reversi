@@ -37,10 +37,14 @@ export function mountOverlay(root, engine) {
   const state = van.state(engine.getSnapshot());
   const localMessage = van.state("");
   const status = van.state({ kind: "pending", text: "WebMCP対応を確認中..." });
+  // 「対局開始」クリックから、石が落ちきってgameStartedが確定するまでの間、
+  // セットアップ帯を先に隠しておくためのローカルUI状態(公式な状態には影響しない)。
+  const starting = van.state(false);
 
   engine.subscribe((snapshot) => {
     state.val = snapshot;
     localMessage.val = "";
+    starting.val = false;
   });
 
   function PlayerTypeChoice(color, type, label) {
@@ -55,12 +59,22 @@ export function mountOverlay(root, engine) {
   }
 
   const setupBand = div(
-    { class: "setup-band", style: () => (state.val.gameStarted ? "display:none;" : "") },
+    { class: "setup-band", style: () => (state.val.gameStarted || starting.val ? "display:none;" : "") },
     span({ class: "setup-band__hint" }, colorLabel(BLACK)),
     div({ class: "color-choice-group" }, PlayerTypeChoice(BLACK, "human", "人間"), PlayerTypeChoice(BLACK, "agent", "AI")),
     span({ class: "setup-band__hint" }, colorLabel(WHITE)),
     div({ class: "color-choice-group" }, PlayerTypeChoice(WHITE, "human", "人間"), PlayerTypeChoice(WHITE, "agent", "AI")),
-    button({ class: "start-btn", type: "button", onclick: () => engine.startNewGame() }, "対局開始")
+    button(
+      {
+        class: "start-btn",
+        type: "button",
+        onclick: () => {
+          const result = engine.startNewGame();
+          if (result.ok) starting.val = true;
+        },
+      },
+      "対局開始"
+    )
   );
 
   const hudBand = div(

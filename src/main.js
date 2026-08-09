@@ -1,6 +1,5 @@
 "use strict";
 
-import "./style.css";
 import * as engine from "./othello.js";
 import { initWebMCP } from "./webmcp.js";
 import { createBoardScene } from "./scene/scene.js";
