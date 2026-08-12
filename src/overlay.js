@@ -6,7 +6,7 @@
 // ゲームロジックは持たない。対局を終えて次を始めたい場合はリロードする運用とする。
 
 import van from "vanjs-core";
-import { BLACK, WHITE } from "../othello.js";
+import { BLACK, WHITE } from "./othello.js";
 
 const { div, button, span, p } = van.tags;
 
@@ -60,21 +60,32 @@ export function mountOverlay(root, engine) {
     );
   }
 
-  // 両者ユーザーの時、この設定は誰にも影響しないので無効化する(消すと帯の幅が変わり
-  // 「対局開始」ボタンの位置がずれるため、表示は残したまま操作だけ止める)。
+  // 両者ユーザーの時、合法手を渡す相手がいないのでこの設定は意味を持たない。
   const noAgent = () => state.val.pendingPlayerTypes.black === "human" && state.val.pendingPlayerTypes.white === "human";
+
+  function PlayerTypeSetting(color) {
+    return div(
+      { class: "setup-band__setting" },
+      span({ class: "setup-band__hint" }, colorLabel(color)),
+      div(
+        { class: "color-choice-group" },
+        PlayerTypeChoice(color, "human", "ユーザー"),
+        PlayerTypeChoice(color, "agent", "エージェント")
+      )
+    );
+  }
 
   const setupBand = div(
     { class: "setup-band", style: () => (state.val.gameStarted || starting.val ? "display:none;" : "") },
-    span({ class: "setup-band__hint" }, colorLabel(BLACK)),
-    div({ class: "color-choice-group" }, PlayerTypeChoice(BLACK, "human", "ユーザー"), PlayerTypeChoice(BLACK, "agent", "エージェント")),
-    span({ class: "setup-band__hint" }, colorLabel(WHITE)),
-    div({ class: "color-choice-group" }, PlayerTypeChoice(WHITE, "human", "ユーザー"), PlayerTypeChoice(WHITE, "agent", "エージェント")),
-    span({ class: () => "setup-band__hint" + (noAgent() ? " setup-band__hint--disabled" : "") }, "合法手"),
     div(
-      { class: () => "color-choice-group" + (noAgent() ? " color-choice-group--disabled" : "") },
-      LegalMovesChoice(true, "渡す"),
-      LegalMovesChoice(false, "渡さない")
+      { class: "setup-band__options" },
+      PlayerTypeSetting(BLACK),
+      PlayerTypeSetting(WHITE),
+      div(
+        { class: "setup-band__setting", style: () => (noAgent() ? "display:none;" : "") },
+        span({ class: "setup-band__hint" }, "合法手"),
+        div({ class: "color-choice-group" }, LegalMovesChoice(true, "渡す"), LegalMovesChoice(false, "渡さない"))
+      )
     ),
     button(
       {

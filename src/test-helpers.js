@@ -1,9 +1,10 @@
 "use strict";
 
 // テスト用の小道具。ここ自体はテストファイルではない(*.test.js にマッチしないので
-// `node --test test/` の対象にならない)。
+// テストランナーの対象にならない)。アプリ側からは import されないので、
+// vite build のバンドルにも含まれない。
 
-import { BLACK, WHITE } from "../src/rules.js";
+import { BLACK, WHITE } from "./rules.js";
 
 /**
  * 8行の文字列から盤面を作る。'.' = 空、'B' = 黒、'W' = 白。
@@ -33,11 +34,6 @@ export function normalizeFlips(flips) {
 /** getLegalMoves の戻りを "row,col" の配列にする。 */
 export function normalizeMoves(moves) {
   return moves.map(({ row, col }) => `${row},${col}`).sort();
-}
-
-/** setTimeout(0) を1回待つ。演出の完了を挟むテストで使う。 */
-export function tick() {
-  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 /** オブジェクトを再帰的に走査して、指定したキーが1つでも存在するかを調べる。 */

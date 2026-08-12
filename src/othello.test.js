@@ -1,16 +1,82 @@
 "use strict";
 
-// othello.js の状態機械のテスト。
-// othello.js はモジュールレベルの可変シングルトンなので、このファイルの中では
-// 状態が共有される。node:test はファイルごとに別プロセスで走るため、他の
-// テストファイルとは干渉しない。各テストの先頭で startGame() を呼んで初期化する。
+// othello.js のテスト。
+// 前半は resolveTurnAfterMove(純粋関数)、後半は状態機械そのもの。
+// 状態機械はモジュールレベルの可変シングルトンなので、このファイルの中では状態が
+// 共有される。node:test はファイルごとに別プロセスで走るため他のテストとは干渉しない。
 
 import { test, describe, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 
-import * as engine from "../src/othello.js";
-import { BLACK, WHITE } from "../src/rules.js";
-import { normalizeMoves } from "./helpers.js";
+import * as engine from "./othello.js";
+import { resolveTurnAfterMove } from "./othello.js";
+import { BLACK, WHITE, createInitialBoard } from "./rules.js";
+import { boardFrom, EMPTY_ROWS, normalizeMoves } from "./test-helpers.js";
+
+// ---------------------------------------------------------------------------
+// resolveTurnAfterMove: パス・終局・勝敗の判定
+// ---------------------------------------------------------------------------
+
+describe("resolveTurnAfterMove", () => {
+  test("相手に合法手があれば、手番は相手に移りメッセージは出ない", () => {
+    assert.deepEqual(resolveTurnAfterMove(createInitialBoard(), BLACK), {
+      turn: WHITE,
+      gameOver: false,
+      winner: null,
+      message: null,
+    });
+  });
+
+  test("相手に合法手が無く自分にあれば、手番が自分に戻りパスのメッセージが出る", () => {
+    // 白は(0,2)の1枚だけ。白が置けるマスは無いが、黒は(0,3)に置いて(0,2)を挟める。
+    const b = boardFrom(["BBW.....", ...EMPTY_ROWS.slice(1)]);
+    const result = resolveTurnAfterMove(b, BLACK);
+    assert.equal(result.turn, BLACK);
+    assert.equal(result.gameOver, false);
+    assert.equal(result.winner, null);
+    assert.equal(result.message, "白は置ける場所がないためパスしました。");
+  });
+
+  test("パスのメッセージは、パスした側(相手)の色で書かれる", () => {
+    const b = boardFrom(["WWB.....", ...EMPTY_ROWS.slice(1)]);
+    assert.equal(resolveTurnAfterMove(b, WHITE).message, "黒は置ける場所がないためパスしました。");
+  });
+
+  test("両者とも置けなければ終局し、石数の多い方が勝つ", () => {
+    // 相手の石が1つも無い盤面 → 双方とも挟めるものが無い。
+    const b = boardFrom(["BB......", ...EMPTY_ROWS.slice(1)]);
+    assert.deepEqual(resolveTurnAfterMove(b, BLACK), {
+      turn: null,
+      gameOver: true,
+      winner: BLACK,
+      message: "両者とも置ける場所がないため対局終了です。",
+    });
+  });
+
+  test("勝敗は手番ではなく石数で決まる(白が多ければ白の勝ち)", () => {
+    const b = boardFrom(["WW......", ...EMPTY_ROWS.slice(1)]);
+    assert.equal(resolveTurnAfterMove(b, WHITE).winner, WHITE);
+  });
+
+  test("終局時に同数なら引き分け", () => {
+    // 黒(0,0)と白(7,7)は離れていて互いに挟めない。
+    const b = boardFrom(["B.......", ...EMPTY_ROWS.slice(1, 7), ".......W"]);
+    const result = resolveTurnAfterMove(b, BLACK);
+    assert.equal(result.gameOver, true);
+    assert.equal(result.winner, "draw");
+  });
+
+  test("渡された盤面を書き換えない(実運用では現在の盤面をそのまま渡している)", () => {
+    const b = createInitialBoard();
+    const before = JSON.stringify(b);
+    resolveTurnAfterMove(b, BLACK);
+    assert.equal(JSON.stringify(b), before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 状態機械
+// ---------------------------------------------------------------------------
 
 /**
  * 対局を開始して、演出の完了(completeAnimation)まで進めた状態にする。
@@ -31,12 +97,10 @@ describe("startNewGame / completeAnimation(二相コミット)", () => {
   test("startNewGame の直後はまだ盤面が確定していない", () => {
     engine.completeAnimation();
     engine.returnToSetup();
-    const before = engine.getSnapshot();
-    assert.equal(before.gameStarted, false);
+    assert.equal(engine.getSnapshot().gameStarted, false);
 
     engine.startNewGame();
-    const pending = engine.getSnapshot();
-    assert.equal(pending.gameStarted, false, "completeAnimation 前は開始扱いにならない");
+    assert.equal(engine.getSnapshot().gameStarted, false, "completeAnimation 前は開始扱いにならない");
 
     engine.completeAnimation();
     const after = engine.getSnapshot();
@@ -59,35 +123,46 @@ describe("startNewGame / completeAnimation(二相コミット)", () => {
     assert.equal(engine.getSnapshot().gameStarted, true);
   });
 
-  test("対局開始で agentId が発行され、両者エージェントでも重複しない", () => {
-    const snap = startGame({ black: "agent", white: "agent" });
-    assert.match(snap.players.black.agentId, /^[0-9A-F]{4}$/);
-    assert.match(snap.players.white.agentId, /^[0-9A-F]{4}$/);
-    assert.notEqual(snap.players.black.agentId, snap.players.white.agentId);
+  test("エージェントにだけ agentId が発行され、両者エージェントでも重複しない", () => {
+    const both = startGame({ black: "agent", white: "agent" });
+    assert.match(both.players.black.agentId, /^[0-9A-F]{4}$/);
+    assert.match(both.players.white.agentId, /^[0-9A-F]{4}$/);
+    assert.notEqual(both.players.black.agentId, both.players.white.agentId);
+
+    const mixed = startGame({ black: "human", white: "agent" });
+    assert.equal(mixed.players.black.agentId, null);
+    assert.notEqual(mixed.players.white.agentId, null);
   });
 
-  test("人間には agentId が発行されない", () => {
-    const snap = startGame({ black: "human", white: "agent" });
-    assert.equal(snap.players.black.agentId, null);
-    assert.notEqual(snap.players.white.agentId, null);
+  test("IDが衝突したら、異なる値になるまで引き直す(引き直しが連続で衝突しても)", () => {
+    // 乱数を差し替えて衝突を起こす。0.5→"8000"、0.25→"4000"。
+    // 黒="8000"、白="8000"(衝突)、引き直しても"8000"(再衝突)、最後に"4000"。
+    // 引き直しが1回きりの実装だと、ここで黒と白が同じIDのまま通ってしまう。
+    const queued = [0.5, 0.5, 0.5, 0.25];
+    const realRandom = Math.random;
+    Math.random = () => (queued.length > 0 ? queued.shift() : realRandom());
+    try {
+      const snap = startGame({ black: "agent", white: "agent" });
+      assert.equal(snap.players.black.agentId, "8000");
+      assert.equal(snap.players.white.agentId, "4000");
+    } finally {
+      Math.random = realRandom;
+    }
   });
 });
 
-describe("legalMovesForAgent の反映タイミング", () => {
-  test("対局中に設定を変えても、進行中の対局には反映されない", () => {
+describe("legalMovesForAgent", () => {
+  test("設定変更は次の対局から効く(進行中の対局は変わらない)", () => {
     startGame({ legalMoves: true });
-    assert.equal(engine.getSnapshot().legalMovesForAgent, true);
-
     engine.setPendingLegalMovesForAgent(false);
-    const snap = engine.getSnapshot();
-    assert.equal(snap.legalMovesForAgent, true, "進行中の対局は変わらない");
-    assert.equal(snap.pendingLegalMovesForAgent, false, "次の対局用の値だけ変わる");
-  });
 
-  test("次に対局開始したときに反映される", () => {
-    const snap = startGame({ legalMoves: false });
-    assert.equal(snap.legalMovesForAgent, false);
-    assert.equal(snap.pendingLegalMovesForAgent, false);
+    const during = engine.getSnapshot();
+    assert.equal(during.legalMovesForAgent, true, "進行中の対局は変わらない");
+    assert.equal(during.pendingLegalMovesForAgent, false, "次の対局用の値だけ変わる");
+
+    assert.equal(engine.startNewGame().ok, true);
+    engine.completeAnimation();
+    assert.equal(engine.getSnapshot().legalMovesForAgent, false, "対局開始で取り込まれる");
   });
 
   test("設定に関わらず、スナップショットの legalMoves は常に計算される(人間のヒント用)", () => {
@@ -101,7 +176,7 @@ describe("setPendingPlayerType", () => {
     engine.completeAnimation();
   });
 
-  test("不正な色や種別は無視される", () => {
+  test("知らない色や種別を渡しても、既存の設定を壊さない", () => {
     engine.setPendingPlayerType(BLACK, "human");
     engine.setPendingPlayerType("green", "agent");
     engine.setPendingPlayerType(BLACK, "robot");
@@ -132,7 +207,7 @@ describe("playAgentMove の検証", () => {
     assert.match(result.error, /人間が担当しています/);
   });
 
-  test("agentId が一致しなければ弾く", () => {
+  test("agentId が一致しなければ弾く(他のエージェントの成り済まし防止)", () => {
     const snap = startGame({ black: "agent" });
     const wrongId = snap.players.black.agentId === "0000" ? "1111" : "0000";
     const result = engine.playAgentMove(2, 3, BLACK, wrongId);
@@ -147,7 +222,7 @@ describe("playAgentMove の検証", () => {
     assert.match(result.error, /白の番ではありません/);
   });
 
-  test("row / col が 0〜7 の整数でなければ弾く(スキーマは強制力を持たない)", () => {
+  test("row / col が 0〜7 の整数でなければ弾く", () => {
     const snap = startGame({ black: "agent" });
     const id = snap.players.black.agentId;
     for (const [row, col] of [[9, 3], [-1, 3], [2, 8], [2.5, 3]]) {
@@ -179,8 +254,7 @@ describe("着手の反映", () => {
     assert.equal(result.ok, true);
     assert.equal(result.mover, BLACK);
 
-    // まだ確定していない
-    assert.equal(engine.getSnapshot().board[2][3], null);
+    assert.equal(engine.getSnapshot().board[2][3], null, "まだ確定していない");
 
     engine.completeAnimation();
     const after = engine.getSnapshot();
@@ -204,13 +278,7 @@ describe("着手の反映", () => {
 });
 
 describe("playHumanMove", () => {
-  test("人間の番なら打てる", () => {
-    startGame({ black: "human", white: "agent" });
-    assert.equal(engine.playHumanMove(2, 3).ok, true);
-    engine.completeAnimation();
-  });
-
-  test("エージェントの番では打てない", () => {
+  test("エージェントが担当している色の番では打てない(盤面クリックを無視する)", () => {
     startGame({ black: "human", white: "agent" });
     engine.playHumanMove(2, 3);
     engine.completeAnimation();
@@ -248,7 +316,7 @@ describe("subscribe / subscribePendingAction", () => {
     const intents = [];
     const unsubscribe = engine.subscribePendingAction((intent) => {
       intents.push(intent);
-      // この時点ではまだ盤面に反映されていない
+      // 描画側はこの時点の盤面を「animation前」として使うので、まだ古いままである必要がある。
       assert.equal(engine.getSnapshot().board[2][3], null);
     });
 
@@ -265,16 +333,17 @@ describe("subscribe / subscribePendingAction", () => {
 });
 
 describe("getSnapshot の防御的コピー", () => {
-  test("返された board を書き換えても内部状態は壊れない", () => {
-    startGame();
+  test("返された値を書き換えても内部状態は壊れない", () => {
+    startGame({ black: "human", white: "agent" });
     const snap = engine.getSnapshot();
     snap.board[0][0] = BLACK;
-    snap.players.black.agentId = "XXXX";
+    snap.players.white.agentId = "XXXX";
     snap.pendingPlayerTypes.black = "agent";
 
     const fresh = engine.getSnapshot();
     assert.equal(fresh.board[0][0], null);
-    assert.notEqual(fresh.players.black.agentId, "XXXX");
+    assert.notEqual(fresh.players.white.agentId, "XXXX");
+    assert.equal(fresh.pendingPlayerTypes.black, "human");
   });
 });
 

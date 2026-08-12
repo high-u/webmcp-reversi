@@ -153,7 +153,9 @@ export function startNewGame() {
   }
   players.black = { type: pendingPlayerTypes.black, agentId: pendingPlayerTypes.black === "agent" ? generateAgentId() : null };
   players.white = { type: pendingPlayerTypes.white, agentId: pendingPlayerTypes.white === "agent" ? generateAgentId() : null };
-  if (players.black.agentId && players.black.agentId === players.white.agentId) {
+  // 両者エージェントのとき、同じIDだと相手に成り済ませてしまう。
+  // 引き直しは1回では足りない(引き直した値がまた衝突しうる)ので、異なるまで繰り返す。
+  while (players.black.agentId !== null && players.white.agentId === players.black.agentId) {
     players.white.agentId = generateAgentId();
   }
   legalMovesForAgent = pendingLegalMovesForAgent;

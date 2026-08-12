@@ -8,8 +8,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test 'test/*.test.js'",
-    "test:watch": "node --test --watch 'test/*.test.js'"
+    "test": "node --test 'src/*.test.js'",
+    "test:watch": "node --test --watch 'src/*.test.js'"
   },
   "keywords": [],
   "author": "",
