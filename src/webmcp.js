@@ -57,7 +57,7 @@ export function createTools() {
     },
     {
       name: "make_move",
-      description: "row,colで指定したマスに、colorで指定した色の石を置きます。row/colは0〜7の整数(0が盤の上端/左端)。colorはあなたが担当している色、agentIdはユーザーから伝えられた4桁の16進数のIDです。対局が始まっていない場合・その色をAIが担当していない場合・あなたの番でない場合・agentIdが一致しない場合・合法手でない場合はエラーを返します。",
+      description: "row,colで指定したマスに、colorで指定した色の石を置きます。row/colは0〜7の整数(0が盤の上端/左端)。colorはあなたが担当している色、agentIdはユーザーから伝えられた4桁の16進数のIDです。対局が始まっていない場合・その色をAIが担当していない場合・あなたの番でない場合・agentIdが一致しない場合・合法手でない場合はエラーを返します。成功時は着手後の盤面を、エラー時はその時点の盤面を返すので、続けてget_game_stateを呼ぶ必要はありません。",
       inputSchema: {
         type: "object",
         properties: {
@@ -83,7 +83,7 @@ export function createTools() {
     },
     {
       name: "new_game",
-      description: "オセロを初期状態にリセットして新しい対局を開始します(セットアップ画面で選択中の先手/後手をそのまま適用します)。",
+      description: "オセロを初期状態にリセットして新しい対局を開始します(セットアップ画面で選択中の先手/後手をそのまま適用します)。応答は開始直後の盤面です。",
       inputSchema: { type: "object", properties: {} },
       execute: async () => {
         const result = engine.startNewGame();

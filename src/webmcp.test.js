@@ -134,6 +134,14 @@ describe("make_move: 正常系", () => {
     assert.deepEqual(state.lastMove, { row: 2, col: 3, color: "black" });
   });
 
+  test("応答は get_game_state と同じ全部入りの状態(着手後に呼び直さなくてよい根拠)", async () => {
+    // 一部のフィールドだけ返すようになると、description と AGENTS.md の
+    // 「続けて get_game_state を呼ぶ必要はない」が嘘になる。
+    await startGame({ black: "agent", white: "human" });
+    const moved = parse(await tools.make_move.execute({ row: 2, col: 3, color: "black", agentId: agentId(BLACK) }));
+    assert.deepEqual(moved, parse(await tools.get_game_state.execute({})));
+  });
+
   test("エージェント同士なら、色ごとの agentId で交互に打てる", async () => {
     await startGame({ black: "agent", white: "agent" });
     await tools.make_move.execute({ row: 2, col: 3, color: "black", agentId: agentId(BLACK) });
@@ -158,6 +166,13 @@ describe("make_move: エラー系", () => {
     assert.equal(body.state.turn, "black");
     assert.equal(body.state.lastMove, null, "却下された手は lastMove を汚さない");
     assert.deepEqual(body.state.scores, before.scores);
+  });
+
+  test("エラー応答の state も get_game_state と同じ全部入り(復帰のために呼び直さなくてよい)", async () => {
+    await startGame({ black: "agent", white: "human" });
+    const denied = await tools.make_move.execute({ row: 0, col: 0, color: "black", agentId: agentId(BLACK) });
+    const body = JSON.parse(denied.content[0].text);
+    assert.deepEqual(body.state, parse(await tools.get_game_state.execute({})));
   });
 
   test("エラー応答に埋め込む state も legalMoves 設定に従う", async () => {
