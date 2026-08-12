@@ -85,6 +85,13 @@ body {
   gap: 8px;
 }
 
+/* 両者ユーザーで「合法手」設定が無意味な時。非表示にはせず、選択値は見えたまま操作だけ止める。 */
+.color-choice-group--disabled,
+.setup-band__hint--disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
 .color-choice {
   padding: 10px 18px;
   border-radius: 999px;

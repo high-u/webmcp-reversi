@@ -21,7 +21,12 @@ function toToolStateJSON(snapshot) {
     board: snapshot.board.map((row) => row.map((cell) => cell || "empty")),
     turn: snapshot.turn,
     scores: snapshot.scores,
-    legalMoves: snapshot.legalMoves,
+    // 「合法手を渡さない」設定のときはキーごと省く。空配列にすると「対局前/終局で
+    // 合法手が無い」状態と区別がつかず、パスや終局と誤読されるため。
+    ...(snapshot.legalMovesForAgent ? { legalMoves: snapshot.legalMoves } : {}),
+    // 直前に打たれた手。エージェント側で盤面の差分を取らずに済ませるためのもので、
+    // 合法手の有無に関わらず常に渡す。対局開始直後は null。
+    lastMove: snapshot.lastMove,
     status: snapshot.gameOver ? "finished" : "in_progress",
     winner: snapshot.gameOver ? snapshot.winner : null,
     gameStarted: snapshot.gameStarted,
@@ -50,7 +55,9 @@ function waitForNextCommit() {
 async function registerWebMCPTools(api) {
   await api.registerTool({
     name: "get_game_state",
-    description: "オセロの現在の盤面、手番、スコア、合法手一覧、プレイヤー設定(人間/AIエージェント)、対局状況を取得します。",
+    description:
+      "オセロの現在の盤面、手番、スコア、直前の手(lastMove、対局開始直後はnull)、プレイヤー設定(人間/AIエージェント)、対局状況を取得します。" +
+      "対局設定によっては合法手一覧(legalMoves)も含まれますが、含まれない場合はboardから自分で合法手を判断してください。",
     inputSchema: { type: "object", properties: {} },
     annotations: { readOnlyHint: true },
     execute: async () => ({ content: [{ type: "text", text: JSON.stringify(toToolStateJSON(engine.getSnapshot())) }] }),

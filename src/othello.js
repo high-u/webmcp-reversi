@@ -114,6 +114,12 @@ const players = {
   black: { type: "human", agentId: null },
   white: { type: "agent", agentId: null },
 };
+// 次に「対局開始」した時に適用される、エージェントへ合法手一覧を渡すかどうか。
+let pendingLegalMovesForAgent = true;
+// 現在進行中の対局に適用されている値。falseの場合、WebMCP経由で返す盤面から
+// legalMoves を省く(=エージェントは自力で合法手を探す)。人間向けのヒント表示や
+// パス判定はこの設定に影響されない。
+let legalMovesForAgent = true;
 
 // 着手/対局開始が受理されてから、3D描画側の演出が完了するまでの保留状態。
 let locked = false;
@@ -160,6 +166,8 @@ export function getSnapshot() {
     gameStarted,
     players: { black: { ...players.black }, white: { ...players.white } },
     pendingPlayerTypes: { ...pendingPlayerTypes },
+    legalMovesForAgent,
+    pendingLegalMovesForAgent,
   };
 }
 
@@ -168,6 +176,12 @@ export function setPendingPlayerType(color, type) {
   if (color !== BLACK && color !== WHITE) return;
   if (type !== "human" && type !== "agent") return;
   pendingPlayerTypes[color] = type;
+  notify();
+}
+
+/** セットアップ画面での「合法手を渡す/渡さない」選択。対局中の状態には一切影響しない。 */
+export function setPendingLegalMovesForAgent(value) {
+  pendingLegalMovesForAgent = Boolean(value);
   notify();
 }
 
@@ -201,6 +215,7 @@ export function startNewGame() {
   if (players.black.agentId && players.black.agentId === players.white.agentId) {
     players.white.agentId = generateAgentId();
   }
+  legalMovesForAgent = pendingLegalMovesForAgent;
   const freshBoard = createInitialBoard();
   const cells = [];
   for (let r = 0; r < SIZE; r++) {
@@ -273,7 +288,8 @@ export function completeAnimation() {
     const { mover, row, col, flips } = pendingAction;
     board[row][col] = mover;
     for (const [r, c] of flips) board[r][c] = mover;
-    lastMove = { row, col };
+    // colorも持たせる。パスを挟むとturnからは打った側を逆算できないため。
+    lastMove = { row, col, color: mover };
     advanceTurnAfterMove(mover);
   } else if (pendingAction.kind === "setup") {
     board = pendingAction.board;
