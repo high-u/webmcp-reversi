@@ -7,6 +7,12 @@
         "chrome-devtools-mcp@latest",
         "--category-experimental-webmcp",
         "--auto-connect"
+      ],
+      "directTools": [
+        "list_pages",
+        "select_page",
+        "list_webmcp_tools",
+        "execute_webmcp_tool"
       ]
     }
   }

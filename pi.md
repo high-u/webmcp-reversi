@@ -68,6 +68,111 @@ Chrome側のセットアップ(`chrome://flags` での有効化など)は `READM
 
 ---
 
+## ツールの見え方と directTools
+
+以下は上のドキュメント調査ではなく、インストール済みのソースを直接読んで確認した内容(pi 0.84.1 / pi-mcp-adapter 2.21.2)。オセロを打たせていて実際に踏んだ問題の原因調査から。
+
+### 1. プロキシ方式では、モデルはツール名もスキーマも知らない
+
+システムプロンプトに入るのは `mcp` という1つのツールの description だけで、その中身は**サーバー名とツール本数のみ**(`pi-mcp-adapter/direct-tools.ts` の `buildProxyDescription`)。個々のツール名も `inputSchema` も入っていない。
+
+```
+MCP gateway — server status, tool search/describe, auth, and single MCP tool calls. ...
+
+Direct tools available (call as normal tools): chrome-devtools (4)
+
+Servers: chrome-devtools (27 tools)
+```
+
+モデルがツールの引数を知る手段は `mcp({search})` / `mcp({describe})` / `mcp({server})` を明示的に呼ぶことだけ。プロキシ方式の「~200トークン」という安さは、この探索の往復とのトレードオフ。
+
+### 2. `mcp` の引数はすべて optional なので、必須引数の欠落を手前で弾けない
+
+`index.ts` の `registerProxyTool` で、`tool` も `args` も `Type.Optional`。つまり `mcp({tool: "chrome_devtools_select_page", args: "{}"})` は `mcp` のスキーマとしては完全に正しく、生成時の制約もクライアント側の検証も一切かからない。実際に弾くのは接続先のMCPサーバー。
+
+```
+Error: MCP error -32602: Input validation error: Invalid arguments for tool select_page: Required at pageId
+
+Expected parameters:
+  pageId (number) *required* - The ID of the page to select. ...
+```
+
+`Expected parameters:` 以降はアダプタがエラー時に付け足すもの(`proxy-modes.ts`)。エラーを見て自己復旧はできるが、1往復無駄になる。
+
+**帰結**: AGENTS.md にツール名だけ書くと、モデルは名前を知っているので探索を飛ばし、しかし引数は知らない、という穴に落ちる。「ツール情報(description / inputSchema)から取得できることは書かない」という方針は、スキーマが最初からコンテキストにある前提の話で、プロキシ方式では成立しない。
+
+### 3. directTools でスキーマをコンテキストに載せる
+
+サーバー定義に追加する。配列で指定する場合は**接頭辞なしの元のツール名**を並べる(登録される名前は `chrome_devtools_<名前>`)。
+
+```json
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp@latest", "--category-experimental-webmcp", "--auto-connect"],
+      "directTools": ["list_pages", "select_page", "list_webmcp_tools", "execute_webmcp_tool"]
+    }
+  }
+}
+```
+
+これで4つが `read` / `bash` などと同列の通常ツールとして登録され、`select_page` は `pageId` 必須のスキーマ付きになる。残りはプロキシ経由のまま。効果は2つ。
+
+- 必須引数の欠落が生成時に効く
+- ツール名の取り違えが消える(プロキシ方式では `list_pages` と接頭辞なしで呼んで `not found. Did you mean: chrome_devtools_list_pages` を食っていた)
+
+代償はプロンプトの増加。READMEの推奨は5〜20個程度、75個以上になるならプロキシか明示的な配列を使えとある(閾値超過時は `console.warn` が出る)。
+
+**反映タイミング**: 直接ツールはメタデータキャッシュから登録される。`directTools` は `computeServerHash` の対象外なので、既存キャッシュを無効化しない = 次回起動でそのまま反映され、`/mcp reconnect` は不要。
+
+**上の「7. 設定変更後はキャッシュに注意」の補足**: `computeServerHash` が見ているのは `command` / `args` / `env` / `cwd` / `url` / `headers` / `auth` / `socket` / `protocolVersion` / `exposeResources` / `includeTools` / `excludeTools`。ここを変えればキャッシュは自動的に無効になる。逆に `lifecycle` / `idleTimeout` / `requestTimeoutMs` / `debug` / `directTools` は対象外。キャッシュのTTLは7日。
+
+### 4. 設定が効いているかの確認方法
+
+**起動時のリストにツールは出ない。** 起動時に表示されるセクションは Context / Skills / Prompts / Extensions / Themes の5つだけで(`dist/modes/interactive/interactive-mode.js` の `showLoadedResources`)、ツールのセクションは存在しない。`--verbose` を付けても増えない。pi 本体に `/tools` 相当のコマンドもない。
+
+起動後の確認は2通り。
+
+| 方法 | 分かること |
+|---|---|
+| `/mcp`(引数なし) | サーバーごとの direct 数(`4/31`)、ツールごとに ●=direct / ○=proxy、トークン概算 |
+| `/mcp tools` | 全ツール名の一覧。**direct/proxy の区別は付かない**(`state.toolMetadata` を並べるだけ) |
+
+directTools の確認に使えるのは `/mcp` のパネルの方。ただしこのパネルはトグルすると設定ファイルを書き換えるので、確認だけなら触らずに閉じる。
+
+---
+
+## AGENTS.md の読み込み
+
+### 読み込まれる範囲
+
+`dist/core/resource-loader.js` の `loadProjectContextFiles`。ディレクトリごとに以下の候補の**最初に見つかった1つ**だけを採用する。
+
+```
+AGENTS.override.md, AGENTS.md, AGENTS.MD, CLAUDE.md, CLAUDE.MD
+```
+
+読む順は、グローバル(`~/.pi/agent`)→ cwd から `/` まで**上に遡って**各階層、で近いものが後ろ。**サブディレクトリは一切見ない。**
+
+つまり `pi/AGENTS.md` を効かせるには `pi/` ディレクトリで pi を起動する必要がある。リポジトリルートで起動しても読まれない(`.pi/mcp.json` も同じ解決なので、MCPが動いていれば cwd は合っている)。
+
+システムプロンプトには `<project_context>` 内に `<project_instructions path="...">` として追加される。
+
+### 読み込みが表示されない場合
+
+`~/.pi/agent/settings.json` の `quietStartup: true` が起動時のリスト表示そのものを抑止している。
+
+```js
+const showListing = options?.force || this.options.verbose || !this.settingsManager.getQuietStartup();
+```
+
+`force: true` を渡す呼び出し元は存在しないので、上書きする手段は `--verbose`(一時的)か、この設定を `false` にする(恒久的)かの2つ。
+
+MCPの起動メッセージは `pi-mcp-adapter` 拡張側の別経路で出るため、`quietStartup: true` でも表示される。「MCPは出ているのにAGENTS.mdは何も出ない」の正体はこれで、読み込み自体は最初からできていた。
+
+---
+
 ## モデル設定
 
 ### 1. 認証(モデルを使えるようにする)
