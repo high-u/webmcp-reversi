@@ -82,11 +82,10 @@ describe("resolveTurnAfterMove", () => {
  * 対局を開始して、演出の完了(completeAnimation)まで進めた状態にする。
  * 3D描画側がやっていることをテストが肩代わりする形。
  */
-function startGame({ black = "human", white = "agent", legalMoves = true } = {}) {
+function startGame({ black = "human", white = "agent" } = {}) {
   engine.completeAnimation(); // 前のテストで保留が残っていれば消化する(無ければ何もしない)
   engine.setPendingPlayerType(BLACK, black);
   engine.setPendingPlayerType(WHITE, white);
-  engine.setPendingLegalMovesForAgent(legalMoves);
   const result = engine.startNewGame();
   assert.equal(result.ok, true, "startNewGame が受理されていること");
   engine.completeAnimation();
@@ -148,26 +147,6 @@ describe("startNewGame / completeAnimation(二相コミット)", () => {
     } finally {
       Math.random = realRandom;
     }
-  });
-});
-
-describe("legalMovesForAgent", () => {
-  test("設定変更は次の対局から効く(進行中の対局は変わらない)", () => {
-    startGame({ legalMoves: true });
-    engine.setPendingLegalMovesForAgent(false);
-
-    const during = engine.getSnapshot();
-    assert.equal(during.legalMovesForAgent, true, "進行中の対局は変わらない");
-    assert.equal(during.pendingLegalMovesForAgent, false, "次の対局用の値だけ変わる");
-
-    assert.equal(engine.startNewGame().ok, true);
-    engine.completeAnimation();
-    assert.equal(engine.getSnapshot().legalMovesForAgent, false, "対局開始で取り込まれる");
-  });
-
-  test("設定に関わらず、スナップショットの legalMoves は常に計算される(人間のヒント用)", () => {
-    const snap = startGame({ legalMoves: false });
-    assert.equal(snap.legalMoves.length, 4);
   });
 });
 

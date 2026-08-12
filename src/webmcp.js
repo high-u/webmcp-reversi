@@ -12,15 +12,46 @@ function getModelContextAPI() {
   return null;
 }
 
+const FILES = "abcdefgh";
+
+/** エンジンの row/col を、エージェントに見せる a1〜h8 の表記にする。row 0 が 1、col 0 が a。 */
+export function toSquare(row, col) {
+  return FILES[col] + (row + 1);
+}
+
+/** a1〜h8 を row/col に戻す。形式が違えば null(呼び出し側でエラーにする)。 */
+export function fromSquare(square) {
+  if (typeof square !== "string" || !/^[a-h][1-8]$/.test(square)) return null;
+  return { row: Number(square[1]) - 1, col: FILES.indexOf(square[0]) };
+}
+
+/**
+ * 石のあるマスを色ごとに集める。列優先(a1,a2,…,b1,…)で並べるので、
+ * 同じ列の石がリスト上で連続する。縦方向の読み取りが一番あてにならないため。
+ */
+function discsByColor(board) {
+  const discs = { black: [], white: [] };
+  for (let col = 0; col < 8; col++) {
+    for (let row = 0; row < 8; row++) {
+      const cell = board[row]?.[col];
+      if (cell === "black" || cell === "white") discs[cell].push(toSquare(row, col));
+    }
+  }
+  return discs;
+}
+
 export function toToolStateJSON(snapshot) {
   return {
-    board: snapshot.board.map((row) => row.map((cell) => cell || "empty")),
+    discs: discsByColor(snapshot.board),
     turn: snapshot.turn,
+
+    // マス名の辞書順は、そのまま列優先の並びになる(a1 < a2 < … < b1)。
+    legalMoves: snapshot.legalMoves.map(({ row, col }) => toSquare(row, col)).sort(),
+
     scores: snapshot.scores,
-
-    ...(snapshot.legalMovesForAgent ? { legalMoves: snapshot.legalMoves } : {}),
-
-    lastMove: snapshot.lastMove,
+    lastMove: snapshot.lastMove
+      ? { square: toSquare(snapshot.lastMove.row, snapshot.lastMove.col), color: snapshot.lastMove.color }
+      : null,
     status: snapshot.gameOver ? "finished" : "in_progress",
     winner: snapshot.gameOver ? snapshot.winner : null,
     gameStarted: snapshot.gameStarted,
@@ -49,27 +80,35 @@ export function createTools() {
     {
       name: "get_game_state",
       description:
-        "オセロの現在の盤面、手番、スコア、直前の手(lastMove、対局開始直後はnull)、プレイヤー設定(人間/AIエージェント)、対局状況を取得します。" +
-        "対局設定によっては合法手一覧(legalMoves)も含まれますが、含まれない場合はboardから自分で合法手を判断してください。",
+        "オセロの現在の局面を取得します。マスはa1〜h8で表します(a〜hが列で、aが左端。1〜8が行で、1が最上段)。" +
+        "discsに黒白それぞれの石があるマス、legalMovesに今の手番が打てるマスが入ります。どちらも列優先(a1,a2,…,b1,…)の順です。" +
+        "ほかに手番(turn)、スコア、直前の手(lastMove、対局開始直後はnull)、プレイヤー設定(人間/AIエージェント)、対局状況を含みます。",
       inputSchema: { type: "object", properties: {} },
       annotations: { readOnlyHint: true },
       execute: async () => ({ content: [{ type: "text", text: JSON.stringify(toToolStateJSON(engine.getSnapshot())) }] }),
     },
     {
       name: "make_move",
-      description: "row,colで指定したマスに、colorで指定した色の石を置きます。row/colは0〜7の整数(0が盤の上端/左端)。colorはあなたが担当している色、agentIdはユーザーから伝えられた4桁の16進数のIDです。対局が始まっていない場合・その色をAIが担当していない場合・あなたの番でない場合・agentIdが一致しない場合・合法手でない場合はエラーを返します。成功時は着手後の盤面を、エラー時はその時点の盤面を返すので、続けてget_game_stateを呼ぶ必要はありません。",
+      description: "squareで指定したマスに、colorで指定した色の石を置きます。squareはa1〜h8(a〜hが列で、aが左端。1〜8が行で、1が最上段)。get_game_stateのlegalMovesにあるマスから選んでください。colorはあなたが担当している色、agentIdはユーザーから伝えられた4桁の16進数のIDです。対局が始まっていない場合・その色をAIが担当していない場合・あなたの番でない場合・agentIdが一致しない場合・合法手でない場合はエラーを返します。成功時は着手後の局面を、エラー時はその時点の局面を返すので、続けてget_game_stateを呼ぶ必要はありません。",
       inputSchema: {
         type: "object",
         properties: {
-          row: { type: "integer", minimum: 0, maximum: 7, description: "行番号(0-7、0が最上段)" },
-          col: { type: "integer", minimum: 0, maximum: 7, description: "列番号(0-7、0が左端)" },
+          square: { type: "string", pattern: "^[a-h][1-8]$", description: "石を置くマス(例: d3)。a〜hが列で、aが左端。1〜8が行で、1が最上段。" },
           color: { type: "string", enum: ["black", "white"], description: "打つ色。あなたが担当している色を指定してください。" },
           agentId: { type: "string", pattern: "^[0-9a-fA-F]{4}$", description: "ユーザーから伝えられた4桁の16進数のエージェントID。" },
         },
-        required: ["row", "col", "color", "agentId"],
+        required: ["square", "color", "agentId"],
       },
-      execute: async ({ row, col, color, agentId }) => {
-        const result = engine.playAgentMove(row, col, color, agentId);
+      execute: async ({ square, color, agentId }) => {
+        const at = fromSquare(square);
+        if (!at) {
+          const stateJSON = toToolStateJSON(engine.getSnapshot());
+          return {
+            content: [{ type: "text", text: JSON.stringify({ error: "square は a1〜h8 の形式で指定してください。", state: stateJSON }) }],
+            isError: true,
+          };
+        }
+        const result = engine.playAgentMove(at.row, at.col, color, agentId);
         if (!result.ok) {
           const stateJSON = toToolStateJSON(engine.getSnapshot());
           return {
@@ -83,7 +122,7 @@ export function createTools() {
     },
     {
       name: "new_game",
-      description: "オセロを初期状態にリセットして新しい対局を開始します(セットアップ画面で選択中の先手/後手をそのまま適用します)。応答は開始直後の盤面です。",
+      description: "オセロを初期状態にリセットして新しい対局を開始します(セットアップ画面で選択中の先手/後手をそのまま適用します)。応答は開始直後の局面です。",
       inputSchema: { type: "object", properties: {} },
       execute: async () => {
         const result = engine.startNewGame();

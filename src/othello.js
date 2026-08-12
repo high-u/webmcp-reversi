@@ -39,10 +39,6 @@ const players = {
   white: { type: "agent", agentId: null },
 };
 
-let pendingLegalMovesForAgent = true;
-
-let legalMovesForAgent = true;
-
 let locked = false;
 let pendingAction = null;
 
@@ -82,8 +78,6 @@ export function getSnapshot() {
     gameStarted,
     players: { black: { ...players.black }, white: { ...players.white } },
     pendingPlayerTypes: { ...pendingPlayerTypes },
-    legalMovesForAgent,
-    pendingLegalMovesForAgent,
   };
 }
 
@@ -91,11 +85,6 @@ export function setPendingPlayerType(color, type) {
   if (color !== BLACK && color !== WHITE) return;
   if (type !== "human" && type !== "agent") return;
   pendingPlayerTypes[color] = type;
-  notify();
-}
-
-export function setPendingLegalMovesForAgent(value) {
-  pendingLegalMovesForAgent = Boolean(value);
   notify();
 }
 
@@ -125,7 +114,6 @@ export function startNewGame() {
   while (players.black.agentId !== null && players.white.agentId === players.black.agentId) {
     players.white.agentId = generateAgentId();
   }
-  legalMovesForAgent = pendingLegalMovesForAgent;
   const freshBoard = createInitialBoard();
   const cells = [];
   for (let r = 0; r < SIZE; r++) {

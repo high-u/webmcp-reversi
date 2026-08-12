@@ -12,8 +12,8 @@ import assert from "node:assert/strict";
 
 import * as engine from "./othello.js";
 import { BLACK, WHITE } from "./rules.js";
-import { createTools, toToolStateJSON } from "./webmcp.js";
-import { hasKeyDeep, normalizeMoves } from "./test-helpers.js";
+import { createTools, toToolStateJSON, toSquare, fromSquare } from "./webmcp.js";
+import { hasKeyDeep } from "./test-helpers.js";
 
 const tools = Object.fromEntries(createTools().map((tool) => [tool.name, tool]));
 
@@ -27,10 +27,9 @@ before(() => {
 });
 
 /** 対局を開始して、確定するまで待つ。黒をエージェントにしておくと先手で動かせる。 */
-async function startGame({ black = "agent", white = "human", legalMoves = true } = {}) {
+async function startGame({ black = "agent", white = "human" } = {}) {
   engine.setPendingPlayerType(BLACK, black);
   engine.setPendingPlayerType(WHITE, white);
-  engine.setPendingLegalMovesForAgent(legalMoves);
   return parse(await tools.new_game.execute({}));
 }
 
@@ -51,34 +50,59 @@ describe("公開しているツールの形", () => {
     assert.equal(tools.get_game_state.annotations.readOnlyHint, true);
   });
 
-  test("make_move は4つの引数を必須にしている(agentId を省略させない)", () => {
-    assert.deepEqual(tools.make_move.inputSchema.required, ["row", "col", "color", "agentId"]);
+  test("make_move は3つの引数を必須にしている(agentId を省略させない)", () => {
+    assert.deepEqual(tools.make_move.inputSchema.required, ["square", "color", "agentId"]);
+  });
+
+  test("make_move が受け取る座標は square ひとつだけ(row/col との二重帳簿を作らない)", () => {
+    assert.deepEqual(Object.keys(tools.make_move.inputSchema.properties), ["square", "color", "agentId"]);
   });
 });
 
-describe("legalMoves の出し分け", () => {
-  test("「渡す」設定なら legalMoves キーがある", async () => {
-    const state = await startGame({ legalMoves: true });
-    assert.equal("legalMoves" in state, true);
-    assert.deepEqual(normalizeMoves(state.legalMoves), ["2,3", "3,2", "4,5", "5,4"]);
+describe("マス名の変換", () => {
+  test("row 0 / col 0 が a1、右下が h8", () => {
+    assert.equal(toSquare(0, 0), "a1");
+    assert.equal(toSquare(7, 7), "h8");
+    assert.equal(toSquare(2, 3), "d3", "行が数字、列が英字(取り違えていない)");
   });
 
-  test("「渡さない」設定なら legalMoves キーごと存在しない", async () => {
-    const state = await startGame({ legalMoves: false });
-    assert.equal("legalMoves" in state, false, "空配列ではなくキーごと省く(パスと誤読されるため)");
-    assert.equal(hasKeyDeep(state, "legalMoves"), false);
+  test("fromSquare は toSquare の逆変換になっている", () => {
+    for (let row = 0; row < 8; row++) {
+      for (let col = 0; col < 8; col++) {
+        assert.deepEqual(fromSquare(toSquare(row, col)), { row, col });
+      }
+    }
   });
 
-  test("lastMove は legalMoves 設定に関わらず常に返す", async () => {
-    for (const legalMoves of [true, false]) {
-      const state = await startGame({ legalMoves });
-      assert.equal("lastMove" in state, true);
+  test("盤外や書式違いは null(呼び出し側でエラーにする)", () => {
+    for (const bad of ["i1", "a9", "a0", "A1", "d", "d33", "", "  d3", null, undefined, 3]) {
+      assert.equal(fromSquare(bad), null, `${JSON.stringify(bad)} は受け付けない`);
     }
   });
 });
 
+describe("legalMoves は常に渡す", () => {
+  test("対局中は legalMoves があり、手番側の手が入っている", async () => {
+    const state = await startGame();
+    assert.deepEqual(state.legalMoves, ["c4", "d3", "e6", "f5"]);
+  });
+
+  test("対局中の legalMoves が空になることはない(置けない側はエンジンが自動でパスする)", async () => {
+    const state = await startGame();
+    assert.equal(state.status, "in_progress");
+    assert.ok(state.legalMoves.length > 0, "空配列はパスの意味になってしまう");
+  });
+
+  test("対局前は空配列", async () => {
+    engine.returnToSetup();
+    const state = parse(await tools.get_game_state.execute({}));
+    assert.equal(state.gameStarted, false);
+    assert.deepEqual(state.legalMoves, []);
+  });
+});
+
 describe("toToolStateJSON: エンジンの内部表現からの変換", () => {
-  test("new_game 直後は初期配置・黒番・lastMove なしで、空きマスは null ではなく \"empty\"", async () => {
+  test("new_game 直後は初期配置・黒番・lastMove なし", async () => {
     const state = await startGame();
     assert.equal(state.gameStarted, true);
     assert.equal(state.status, "in_progress");
@@ -86,9 +110,22 @@ describe("toToolStateJSON: エンジンの内部表現からの変換", () => {
     assert.equal(state.turn, "black");
     assert.equal(state.lastMove, null);
     assert.deepEqual(state.scores, { black: 2, white: 2 });
-    assert.equal(state.board[0][0], "empty");
-    assert.equal(state.board[3][3], "white");
-    assert.equal(state.board[3][4], "black");
+    assert.deepEqual(state.discs, { black: ["d5", "e4"], white: ["d4", "e5"] });
+  });
+
+  test("盤面はマス目の配列ではなく、石のあるマスだけを色ごとに並べたリスト", async () => {
+    const state = await startGame();
+    assert.equal("board" in state, false, "旧形式のキーが残っていると、配列だと思って読まれる");
+    assert.deepEqual(Object.keys(state.discs), ["black", "white"]);
+    assert.equal(hasKeyDeep(state, "empty"), false, "空きマスは列挙しない");
+  });
+
+  test("discs と legalMoves は列優先(同じ列の石がリスト上で連続する)", async () => {
+    await startGame({ black: "agent", white: "human" });
+    const state = parse(await tools.make_move.execute({ square: "d3", color: "black", agentId: agentId(BLACK) }));
+
+    assert.deepEqual(state.discs.black, ["d3", "d4", "d5", "e4"], "d列が固まっている(行優先なら d3,d4,e4,d5)");
+    assert.deepEqual(state.legalMoves, ["c3", "c5", "e3"]);
   });
 
   test("players は種別だけに潰し、agentId はどこにも含めない", async () => {
@@ -105,7 +142,6 @@ describe("toToolStateJSON: エンジンの内部表現からの変換", () => {
       turn: null,
       scores: { black: 40, white: 24 },
       legalMoves: [],
-      legalMovesForAgent: true,
       lastMove: { row: 7, col: 7, color: BLACK },
       gameOver: true,
       winner: BLACK,
@@ -115,40 +151,41 @@ describe("toToolStateJSON: エンジンの内部表現からの変換", () => {
     });
     assert.equal(state.status, "finished");
     assert.equal(state.winner, BLACK);
+    assert.deepEqual(state.lastMove, { square: "h8", color: BLACK });
     assert.equal(state.message, "両者とも置ける場所がないため対局終了です。");
     assert.equal(hasKeyDeep(state, "agentId"), false);
   });
 });
 
 describe("make_move: 正常系", () => {
-  test("演出の完了を待って、着手が反映された後の盤面が返る", async () => {
+  test("演出の完了を待って、着手が反映された後の局面が返る", async () => {
     await startGame({ black: "agent", white: "human" });
-    const result = await tools.make_move.execute({ row: 2, col: 3, color: "black", agentId: agentId(BLACK) });
+    const result = await tools.make_move.execute({ square: "d3", color: "black", agentId: agentId(BLACK) });
 
     assert.equal(result.isError, undefined);
     const state = parse(result);
-    assert.equal(state.board[2][3], "black", "row と col を取り違えていない");
-    assert.equal(state.board[3][3], "black", "(3,3)の白が裏返っている");
+    assert.ok(state.discs.black.includes("d3"), "指定したマスに置かれている");
+    assert.ok(state.discs.black.includes("d4"), "d4 の白が裏返っている");
     assert.deepEqual(state.scores, { black: 4, white: 1 });
     assert.equal(state.turn, "white");
-    assert.deepEqual(state.lastMove, { row: 2, col: 3, color: "black" });
+    assert.deepEqual(state.lastMove, { square: "d3", color: "black" });
   });
 
   test("応答は get_game_state と同じ全部入りの状態(着手後に呼び直さなくてよい根拠)", async () => {
     // 一部のフィールドだけ返すようになると、description と AGENTS.md の
     // 「続けて get_game_state を呼ぶ必要はない」が嘘になる。
     await startGame({ black: "agent", white: "human" });
-    const moved = parse(await tools.make_move.execute({ row: 2, col: 3, color: "black", agentId: agentId(BLACK) }));
+    const moved = parse(await tools.make_move.execute({ square: "d3", color: "black", agentId: agentId(BLACK) }));
     assert.deepEqual(moved, parse(await tools.get_game_state.execute({})));
   });
 
   test("エージェント同士なら、色ごとの agentId で交互に打てる", async () => {
     await startGame({ black: "agent", white: "agent" });
-    await tools.make_move.execute({ row: 2, col: 3, color: "black", agentId: agentId(BLACK) });
-    const state = parse(await tools.make_move.execute({ row: 2, col: 2, color: "white", agentId: agentId(WHITE) }));
+    await tools.make_move.execute({ square: "d3", color: "black", agentId: agentId(BLACK) });
+    const state = parse(await tools.make_move.execute({ square: "c3", color: "white", agentId: agentId(WHITE) }));
 
     assert.equal(state.turn, "black");
-    assert.deepEqual(state.lastMove, { row: 2, col: 2, color: "white" });
+    assert.deepEqual(state.lastMove, { square: "c3", color: "white" });
   });
 });
 
@@ -157,12 +194,12 @@ describe("make_move: エラー系", () => {
     await startGame({ black: "agent", white: "human" });
     const before = parse(await tools.get_game_state.execute({}));
 
-    const result = await tools.make_move.execute({ row: 0, col: 0, color: "black", agentId: agentId(BLACK) });
+    const result = await tools.make_move.execute({ square: "a1", color: "black", agentId: agentId(BLACK) });
     assert.equal(result.isError, true);
 
     const body = JSON.parse(result.content[0].text);
     assert.match(body.error, /合法手ではありません/, "エンジンの理由がそのまま伝わる");
-    assert.deepEqual(body.state.board, before.board);
+    assert.deepEqual(body.state.discs, before.discs);
     assert.equal(body.state.turn, "black");
     assert.equal(body.state.lastMove, null, "却下された手は lastMove を汚さない");
     assert.deepEqual(body.state.scores, before.scores);
@@ -170,49 +207,44 @@ describe("make_move: エラー系", () => {
 
   test("エラー応答の state も get_game_state と同じ全部入り(復帰のために呼び直さなくてよい)", async () => {
     await startGame({ black: "agent", white: "human" });
-    const denied = await tools.make_move.execute({ row: 0, col: 0, color: "black", agentId: agentId(BLACK) });
+    const denied = await tools.make_move.execute({ square: "a1", color: "black", agentId: agentId(BLACK) });
     const body = JSON.parse(denied.content[0].text);
     assert.deepEqual(body.state, parse(await tools.get_game_state.execute({})));
-  });
-
-  test("エラー応答に埋め込む state も legalMoves 設定に従う", async () => {
-    // 「渡さない」設定のとき、わざと反則を打って合法手一覧を引き出せてはいけない。
-    await startGame({ black: "agent", white: "human", legalMoves: false });
-    const denied = await tools.make_move.execute({ row: 0, col: 0, color: "black", agentId: agentId(BLACK) });
-    assert.equal(hasKeyDeep(JSON.parse(denied.content[0].text), "legalMoves"), false);
-
-    // 逆に「渡す」設定なら、エラー時でも省いてしまわない。
-    await startGame({ black: "agent", white: "human", legalMoves: true });
-    const shown = await tools.make_move.execute({ row: 0, col: 0, color: "black", agentId: agentId(BLACK) });
-    assert.equal("legalMoves" in JSON.parse(shown.content[0].text).state, true);
   });
 
   test("agentId は呼び出し引数がそのままエンジンに渡る(違えば弾かれる)", async () => {
     await startGame({ black: "agent", white: "human" });
     const wrong = agentId(BLACK) === "0000" ? "1111" : "0000";
-    const result = await tools.make_move.execute({ row: 2, col: 3, color: "black", agentId: wrong });
+    const result = await tools.make_move.execute({ square: "d3", color: "black", agentId: wrong });
     assert.equal(result.isError, true);
     assert.match(JSON.parse(result.content[0].text).error, /agentId が一致しません/);
   });
 
-  test("inputSchema の minimum / maximum は強制されないので、範囲外もエンジンが弾く", async () => {
+  test("inputSchema の pattern は強制されないので、書式違いの square はツール側で弾く", async () => {
     await startGame({ black: "agent", white: "human" });
     const id = agentId(BLACK);
-    for (const [row, col] of [[9, 3], [-1, 3], [2, 8]]) {
-      const result = await tools.make_move.execute({ row, col, color: "black", agentId: id });
-      assert.equal(result.isError, true, `(${row},${col}) は弾かれるべき`);
-      assert.match(JSON.parse(result.content[0].text).error, /0〜7 の整数/);
+    for (const square of ["i1", "a9", "D3", "2,3", ""]) {
+      const result = await tools.make_move.execute({ square, color: "black", agentId: id });
+      assert.equal(result.isError, true, `"${square}" は弾かれるべき`);
+      assert.match(JSON.parse(result.content[0].text).error, /a1〜h8 の形式/);
     }
   });
 
-  test("対局前でも state を組み立てられる(盤面が空のまま返る)", async () => {
+  test("書式違いで弾いたときも、その時点の局面を添えて返す", async () => {
+    await startGame({ black: "agent", white: "human" });
+    const result = await tools.make_move.execute({ square: "z9", color: "black", agentId: agentId(BLACK) });
+    const body = JSON.parse(result.content[0].text);
+    assert.deepEqual(body.state, parse(await tools.get_game_state.execute({})));
+  });
+
+  test("対局前でも state を組み立てられる(石が一つも無いまま返る)", async () => {
     engine.returnToSetup();
-    const result = await tools.make_move.execute({ row: 2, col: 3, color: "black", agentId: "0000" });
+    const result = await tools.make_move.execute({ square: "d3", color: "black", agentId: "0000" });
     assert.equal(result.isError, true);
 
     const body = JSON.parse(result.content[0].text);
     assert.match(body.error, /対局がまだ開始されていません/);
     assert.equal(body.state.gameStarted, false);
-    assert.equal(body.state.board[3][3], "empty");
+    assert.deepEqual(body.state.discs, { black: [], white: [] });
   });
 });

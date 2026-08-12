@@ -43,19 +43,6 @@ export function mountOverlay(root, engine) {
     );
   }
 
-  function LegalMovesChoice(value, label) {
-    return button(
-      {
-        type: "button",
-        class: () => "color-choice" + (state.val.pendingLegalMovesForAgent === value ? " color-choice--selected" : ""),
-        onclick: () => engine.setPendingLegalMovesForAgent(value),
-      },
-      label
-    );
-  }
-
-  const noAgent = () => state.val.pendingPlayerTypes.black === "human" && state.val.pendingPlayerTypes.white === "human";
-
   function PlayerTypeSetting(color) {
     return div(
       { class: "setup-band__setting" },
@@ -73,12 +60,7 @@ export function mountOverlay(root, engine) {
     div(
       { class: "setup-band__options" },
       PlayerTypeSetting(BLACK),
-      PlayerTypeSetting(WHITE),
-      div(
-        { class: "setup-band__setting", style: () => (noAgent() ? "display:none;" : "") },
-        span({ class: "setup-band__hint" }, "合法手"),
-        div({ class: "color-choice-group" }, LegalMovesChoice(true, "渡す"), LegalMovesChoice(false, "渡さない"))
-      )
+      PlayerTypeSetting(WHITE)
     ),
     button(
       {
