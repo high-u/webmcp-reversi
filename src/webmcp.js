@@ -16,7 +16,8 @@ function getModelContextAPI() {
   return null;
 }
 
-function toToolStateJSON(snapshot) {
+/** エンジンのスナップショットを、エージェントに返すJSONへ変換する純粋関数。 */
+export function toToolStateJSON(snapshot) {
   return {
     board: snapshot.board.map((row) => row.map((cell) => cell || "empty")),
     turn: snapshot.turn,
@@ -52,61 +53,71 @@ function waitForNextCommit() {
   });
 }
 
-async function registerWebMCPTools(api) {
-  await api.registerTool({
-    name: "get_game_state",
-    description:
-      "オセロの現在の盤面、手番、スコア、直前の手(lastMove、対局開始直後はnull)、プレイヤー設定(人間/AIエージェント)、対局状況を取得します。" +
-      "対局設定によっては合法手一覧(legalMoves)も含まれますが、含まれない場合はboardから自分で合法手を判断してください。",
-    inputSchema: { type: "object", properties: {} },
-    annotations: { readOnlyHint: true },
-    execute: async () => ({ content: [{ type: "text", text: JSON.stringify(toToolStateJSON(engine.getSnapshot())) }] }),
-  });
-
-  await api.registerTool({
-    name: "make_move",
-    description: "row,colで指定したマスに、colorで指定した色の石を置きます。row/colは0〜7の整数(0が盤の上端/左端)。colorはあなたが担当している色、agentIdはユーザーから伝えられた4桁の16進数のIDです。対局が始まっていない場合・その色をAIが担当していない場合・あなたの番でない場合・agentIdが一致しない場合・合法手でない場合はエラーを返します。",
-    inputSchema: {
-      type: "object",
-      properties: {
-        row: { type: "integer", minimum: 0, maximum: 7, description: "行番号(0-7、0が最上段)" },
-        col: { type: "integer", minimum: 0, maximum: 7, description: "列番号(0-7、0が左端)" },
-        color: { type: "string", enum: ["black", "white"], description: "打つ色。あなたが担当している色を指定してください。" },
-        agentId: { type: "string", pattern: "^[0-9a-fA-F]{4}$", description: "ユーザーから伝えられた4桁の16進数のエージェントID。" },
+/**
+ * 公開するツールの定義一覧。registerTool に渡すオブジェクトをそのまま返すだけで、
+ * ブラウザのAPIには依存しない(execute を直接呼べるようにしてある)。
+ */
+export function createTools() {
+  return [
+    {
+      name: "get_game_state",
+      description:
+        "オセロの現在の盤面、手番、スコア、直前の手(lastMove、対局開始直後はnull)、プレイヤー設定(人間/AIエージェント)、対局状況を取得します。" +
+        "対局設定によっては合法手一覧(legalMoves)も含まれますが、含まれない場合はboardから自分で合法手を判断してください。",
+      inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: true },
+      execute: async () => ({ content: [{ type: "text", text: JSON.stringify(toToolStateJSON(engine.getSnapshot())) }] }),
+    },
+    {
+      name: "make_move",
+      description: "row,colで指定したマスに、colorで指定した色の石を置きます。row/colは0〜7の整数(0が盤の上端/左端)。colorはあなたが担当している色、agentIdはユーザーから伝えられた4桁の16進数のIDです。対局が始まっていない場合・その色をAIが担当していない場合・あなたの番でない場合・agentIdが一致しない場合・合法手でない場合はエラーを返します。",
+      inputSchema: {
+        type: "object",
+        properties: {
+          row: { type: "integer", minimum: 0, maximum: 7, description: "行番号(0-7、0が最上段)" },
+          col: { type: "integer", minimum: 0, maximum: 7, description: "列番号(0-7、0が左端)" },
+          color: { type: "string", enum: ["black", "white"], description: "打つ色。あなたが担当している色を指定してください。" },
+          agentId: { type: "string", pattern: "^[0-9a-fA-F]{4}$", description: "ユーザーから伝えられた4桁の16進数のエージェントID。" },
+        },
+        required: ["row", "col", "color", "agentId"],
       },
-      required: ["row", "col", "color", "agentId"],
+      execute: async ({ row, col, color, agentId }) => {
+        const result = engine.playAgentMove(row, col, color, agentId);
+        if (!result.ok) {
+          const stateJSON = toToolStateJSON(engine.getSnapshot());
+          return {
+            content: [{ type: "text", text: JSON.stringify({ error: result.error, state: stateJSON }) }],
+            isError: true,
+          };
+        }
+        const snapshot = await waitForNextCommit();
+        return { content: [{ type: "text", text: JSON.stringify(toToolStateJSON(snapshot)) }] };
+      },
     },
-    execute: async ({ row, col, color, agentId }) => {
-      const result = engine.playAgentMove(row, col, color, agentId);
-      if (!result.ok) {
-        const stateJSON = toToolStateJSON(engine.getSnapshot());
-        return {
-          content: [{ type: "text", text: JSON.stringify({ error: result.error, state: stateJSON }) }],
-          isError: true,
-        };
-      }
-      const snapshot = await waitForNextCommit();
-      return { content: [{ type: "text", text: JSON.stringify(toToolStateJSON(snapshot)) }] };
+    {
+      name: "new_game",
+      description: "オセロを初期状態にリセットして新しい対局を開始します(セットアップ画面で選択中の先手/後手をそのまま適用します)。",
+      inputSchema: { type: "object", properties: {} },
+      execute: async () => {
+        const result = engine.startNewGame();
+        if (!result.ok) {
+          const stateJSON = toToolStateJSON(engine.getSnapshot());
+          return {
+            content: [{ type: "text", text: JSON.stringify({ error: result.error, state: stateJSON }) }],
+            isError: true,
+          };
+        }
+        const snapshot = await waitForNextCommit();
+        return { content: [{ type: "text", text: JSON.stringify(toToolStateJSON(snapshot)) }] };
+      },
     },
-  });
+  ];
+}
 
-  await api.registerTool({
-    name: "new_game",
-    description: "オセロを初期状態にリセットして新しい対局を開始します(セットアップ画面で選択中の先手/後手をそのまま適用します)。",
-    inputSchema: { type: "object", properties: {} },
-    execute: async () => {
-      const result = engine.startNewGame();
-      if (!result.ok) {
-        const stateJSON = toToolStateJSON(engine.getSnapshot());
-        return {
-          content: [{ type: "text", text: JSON.stringify({ error: result.error, state: stateJSON }) }],
-          isError: true,
-        };
-      }
-      const snapshot = await waitForNextCommit();
-      return { content: [{ type: "text", text: JSON.stringify(toToolStateJSON(snapshot)) }] };
-    },
-  });
+async function registerWebMCPTools(api) {
+  for (const tool of createTools()) {
+    await api.registerTool(tool);
+  }
 }
 
 /**

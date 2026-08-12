@@ -11,84 +11,25 @@
 // 公式な状態(getSnapshot()の内容)は変化しない。これにより、手番やヒント表示が
 // 盤面の見た目より先走ることはない。
 
-const SIZE = 8;
-export const BLACK = "black";
-export const WHITE = "white";
-const DIRECTIONS = [
-  [-1, -1], [-1, 0], [-1, 1],
-  [0, -1], [0, 1],
-  [1, -1], [1, 0], [1, 1],
-];
+import {
+  SIZE,
+  BLACK,
+  WHITE,
+  opponent,
+  countDiscs,
+  createEmptyBoard,
+  createInitialBoard,
+  findFlipsForMove,
+  getLegalMoves,
+} from "./rules.js";
 
-function opponent(color) {
-  return color === BLACK ? WHITE : BLACK;
-}
+// 呼び出し側(overlay.jsなど)はエンジン経由で色定数を参照しているので、そのまま通す。
+export { BLACK, WHITE };
 
 function colorLabel(color) {
   if (color === BLACK) return "黒";
   if (color === WHITE) return "白";
   return "";
-}
-
-function inBounds(r, c) {
-  return r >= 0 && r < SIZE && c >= 0 && c < SIZE;
-}
-
-function createEmptyBoard() {
-  return Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
-}
-
-function createInitialBoard() {
-  const b = createEmptyBoard();
-  b[3][3] = WHITE;
-  b[3][4] = BLACK;
-  b[4][3] = BLACK;
-  b[4][4] = WHITE;
-  return b;
-}
-
-function findFlipsForMove(b, color, row, col) {
-  if (!inBounds(row, col) || b[row][col] !== null) return null;
-  const opp = opponent(color);
-  const allFlips = [];
-  for (const [dr, dc] of DIRECTIONS) {
-    const lineFlips = [];
-    let r = row + dr;
-    let c = col + dc;
-    while (inBounds(r, c) && b[r][c] === opp) {
-      lineFlips.push([r, c]);
-      r += dr;
-      c += dc;
-    }
-    if (lineFlips.length > 0 && inBounds(r, c) && b[r][c] === color) {
-      allFlips.push(...lineFlips);
-    }
-  }
-  return allFlips.length > 0 ? allFlips : null;
-}
-
-function getLegalMoves(b, color) {
-  const moves = [];
-  for (let r = 0; r < SIZE; r++) {
-    for (let c = 0; c < SIZE; c++) {
-      if (b[r][c] === null && findFlipsForMove(b, color, r, c)) {
-        moves.push({ row: r, col: c });
-      }
-    }
-  }
-  return moves;
-}
-
-function countDiscs(b) {
-  let black = 0;
-  let white = 0;
-  for (const row of b) {
-    for (const cell of row) {
-      if (cell === BLACK) black++;
-      else if (cell === WHITE) white++;
-    }
-  }
-  return { black, white };
 }
 
 function generateAgentId() {
@@ -229,23 +170,35 @@ export function startNewGame() {
   return { ok: true };
 }
 
-function advanceTurnAfterMove(mover) {
+/**
+ * 純粋関数。ある盤面で mover が打ち終わった直後の、次の手番・終局・勝者・
+ * 表示メッセージを決める。状態は書き換えないので、任意の盤面を渡して単体で
+ * 検証できる(パス・両者パスによる終局・勝敗判定がここに集約されている)。
+ * @returns {{turn: string|null, gameOver: boolean, winner: string|null, message: string|null}}
+ */
+export function resolveTurnAfterMove(b, mover) {
   const opp = opponent(mover);
-  if (getLegalMoves(board, opp).length > 0) {
-    currentTurn = opp;
-    lastEventMessage = null;
-    return;
+  if (getLegalMoves(b, opp).length > 0) {
+    return { turn: opp, gameOver: false, winner: null, message: null };
   }
-  if (getLegalMoves(board, mover).length > 0) {
-    currentTurn = mover;
-    lastEventMessage = `${colorLabel(opp)}は置ける場所がないためパスしました。`;
-    return;
+  if (getLegalMoves(b, mover).length > 0) {
+    return { turn: mover, gameOver: false, winner: null, message: `${colorLabel(opp)}は置ける場所がないためパスしました。` };
   }
-  gameOver = true;
-  currentTurn = null;
-  const scores = countDiscs(board);
-  winner = scores.black === scores.white ? "draw" : (scores.black > scores.white ? BLACK : WHITE);
-  lastEventMessage = "両者とも置ける場所がないため対局終了です。";
+  const scores = countDiscs(b);
+  return {
+    turn: null,
+    gameOver: true,
+    winner: scores.black === scores.white ? "draw" : (scores.black > scores.white ? BLACK : WHITE),
+    message: "両者とも置ける場所がないため対局終了です。",
+  };
+}
+
+function advanceTurnAfterMove(mover) {
+  const result = resolveTurnAfterMove(board, mover);
+  currentTurn = result.turn;
+  gameOver = result.gameOver;
+  winner = result.winner;
+  lastEventMessage = result.message;
 }
 
 /** locked チェック済みの前提で呼ばれる。着手を検証し、受理できれば保留状態にする。 */
