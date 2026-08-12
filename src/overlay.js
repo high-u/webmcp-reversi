@@ -1,10 +1,5 @@
 "use strict";
 
-// 3D盤面の上にフローティングするUI(Van.js)。
-// セットアップ帯(先手/後手選択+対局開始)・ゲーム中のHUD(黒/白のスコア)・
-// 結果帯(対局終了時のみ)を、othello.jsのgameStarted/gameOverに応じて出し分けるだけで、
-// ゲームロジックは持たない。対局を終えて次を始めたい場合はリロードする運用とする。
-
 import van from "vanjs-core";
 import { BLACK, WHITE } from "./othello.js";
 
@@ -28,8 +23,7 @@ export function mountOverlay(root, engine) {
   const state = van.state(engine.getSnapshot());
   const localMessage = van.state("");
   const status = van.state({ kind: "pending", text: "WebMCP対応を確認中..." });
-  // 「対局開始」クリックから、石が落ちきってgameStartedが確定するまでの間、
-  // セットアップ帯を先に隠しておくためのローカルUI状態(公式な状態には影響しない)。
+
   const starting = van.state(false);
 
   engine.subscribe((snapshot) => {
@@ -60,7 +54,6 @@ export function mountOverlay(root, engine) {
     );
   }
 
-  // 両者ユーザーの時、合法手を渡す相手がいないのでこの設定は意味を持たない。
   const noAgent = () => state.val.pendingPlayerTypes.black === "human" && state.val.pendingPlayerTypes.white === "human";
 
   function PlayerTypeSetting(color) {

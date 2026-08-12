@@ -1,9 +1,5 @@
 "use strict";
 
-// WebMCPツールの登録だけを担当するモジュール。
-// othello.js (ゲームエンジン)にのみ依存し、DOM描画やThree.jsのシーンには一切触れない。
-// ここを読めば「外部のAIエージェントに何を公開しているか」が完結してわかる。
-
 import * as engine from "./othello.js";
 
 function getModelContextAPI() {
@@ -16,29 +12,24 @@ function getModelContextAPI() {
   return null;
 }
 
-/** エンジンのスナップショットを、エージェントに返すJSONへ変換する純粋関数。 */
 export function toToolStateJSON(snapshot) {
   return {
     board: snapshot.board.map((row) => row.map((cell) => cell || "empty")),
     turn: snapshot.turn,
     scores: snapshot.scores,
-    // 「合法手を渡さない」設定のときはキーごと省く。空配列にすると「対局前/終局で
-    // 合法手が無い」状態と区別がつかず、パスや終局と誤読されるため。
+
     ...(snapshot.legalMovesForAgent ? { legalMoves: snapshot.legalMoves } : {}),
-    // 直前に打たれた手。エージェント側で盤面の差分を取らずに済ませるためのもので、
-    // 合法手の有無に関わらず常に渡す。対局開始直後は null。
+
     lastMove: snapshot.lastMove,
     status: snapshot.gameOver ? "finished" : "in_progress",
     winner: snapshot.gameOver ? snapshot.winner : null,
     gameStarted: snapshot.gameStarted,
-    // agentIdは意図的に含めない(ユーザーが各エージェントに直接伝える識別子のため、ツール経由では読めないようにする)。
+
     players: { black: snapshot.players.black.type, white: snapshot.players.white.type },
     message: snapshot.message,
   };
 }
 
-// 着手/対局開始は保留(locked)を経由するため、成功応答は「盤面に確定反映された後」の
-// 状態を返したい。次にnotify()される(=演出が完了しcompleteAnimation()された)瞬間まで待つ。
 function waitForNextCommit() {
   return new Promise((resolve) => {
     let first = true;
@@ -53,10 +44,6 @@ function waitForNextCommit() {
   });
 }
 
-/**
- * 公開するツールの定義一覧。registerTool に渡すオブジェクトをそのまま返すだけで、
- * ブラウザのAPIには依存しない(execute を直接呼べるようにしてある)。
- */
 export function createTools() {
   return [
     {
@@ -120,9 +107,6 @@ async function registerWebMCPTools(api) {
   }
 }
 
-/**
- * @param {(status: {kind: "pending"|"ok"|"unavailable", text: string}) => void} onStatusChange
- */
 export async function initWebMCP(onStatusChange, retriesLeft = 3) {
   const found = getModelContextAPI();
   if (found) {

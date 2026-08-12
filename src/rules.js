@@ -1,10 +1,5 @@
 "use strict";
 
-// オセロの「ルール」だけを持つモジュール。
-// 状態を一切持たず、渡された盤面配列を読むだけの純粋関数で構成する。
-// othello.js(状態機械)から使われるが、逆向きの依存は無い。
-// ここには日本語のメッセージも入れない(表示や進行の都合は othello.js の責務)。
-
 export const SIZE = 8;
 export const BLACK = "black";
 export const WHITE = "white";
@@ -36,10 +31,6 @@ export function createInitialBoard() {
   return b;
 }
 
-/**
- * (row,col)にcolorを置いたときに裏返る石の一覧。置けない場合は null。
- * @returns {[number, number][] | null}
- */
 export function findFlipsForMove(b, color, row, col) {
   if (!inBounds(row, col) || b[row][col] !== null) return null;
   const opp = opponent(color);
